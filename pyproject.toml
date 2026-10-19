@@ -1,12 +1,12 @@
 [project]
-name = "sentinel"
+name = "watchwise"
 version = "0.2.0"
 description = "An AI guard for your NVR: alerts that explain themselves, an agent you can question, and a learning loop - on your own hardware."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-authors = [{ name = "Sentinel contributors" }]
+authors = [{ name = "Watchwise contributors" }]
 keywords = ["frigate", "nvr", "surveillance", "vlm", "llm", "agent", "mcp", "ollama"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -30,27 +30,35 @@ dependencies = [
 [project.optional-dependencies]
 # Claude via the Anthropic SDK (the `anthropic` model provider).
 anthropic = ["anthropic>=1.0"]
-# The stdio MCP server (`sentinel-mcp`), for Claude Desktop, Claude Code, Cursor...
+# The stdio MCP server (`watchwise-mcp`), for Claude Desktop, Claude Code, Cursor...
 mcp = ["mcp>=2.0"]
 # The Claude Agent SDK investigation backend (agent.backend: claude_sdk).
 agent = ["claude-agent-sdk>=0.2", "mcp>=2.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
-all = ["sentinel[anthropic,mcp,agent]"]
+all = ["watchwise[anthropic,mcp,agent]"]
 
 [project.scripts]
-sentinel = "sentinel.cli:main"
-sentinel-mcp = "sentinel.mcp.stdio_server:main"
+watchwise = "watchwise.cli:main"
+watchwise-mcp = "watchwise.mcp.stdio_server:main"
+
+[project.urls]
+Homepage = "https://github.com/PAOPAOtomato/watchwise"
+Repository = "https://github.com/PAOPAOtomato/watchwise"
+Issues = "https://github.com/PAOPAOtomato/watchwise/issues"
 
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["sentinel*"]
+include = ["watchwise*"]
 
 [tool.setuptools.package-data]
-"sentinel.hw" = ["*.yml"]
+"watchwise.hw" = ["*.yml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# A test stuck this long dumps every thread's stack, so a hang is diagnosable
+# from the CI log instead of only timing out.
+faulthandler_timeout = 120

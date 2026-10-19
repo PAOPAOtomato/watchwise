@@ -20,17 +20,17 @@ import json
 import httpx
 import pytest
 
-from sentinel.config import (
+from watchwise.config import (
     AgentSettings,
     MemorySettings,
     ModelEndpoint,
     RolesSettings,
-    SentinelConfig,
+    WatchwiseConfig,
     VLMSettings,
     interpolate_env,
 )
-from sentinel.fakes.llm_server import FakeLLMState, build_fake_llm
-from sentinel.llm.base import (
+from watchwise.fakes.llm_server import FakeLLMState, build_fake_llm
+from watchwise.llm.base import (
     INVALID_ARGUMENTS,
     ChatModelError,
     ChatResult,
@@ -43,17 +43,17 @@ from sentinel.llm.base import (
     parse_arguments,
     split_reasoning,
 )
-from sentinel.llm.ollama import OllamaChat
-from sentinel.llm.openai_compat import OpenAICompatChat
-from sentinel.llm.registry import build_chat_model
-from sentinel.llm.stub import StubChat
-from sentinel.tier2.vlm.chat_adapter import ChatModelVLM
-from sentinel.tier3.backends.scripted import ScriptedBackend
-from sentinel.tier3.backends.tool_loop import NUDGE, ToolLoopBackend
-from sentinel.tier3.investigator import Investigator
-from sentinel.tools.base import ToolContext
-from sentinel.types import Frame, ScreenResult, Verdict
-from sentinel.wiring import build_agent_backend, build_system
+from watchwise.llm.ollama import OllamaChat
+from watchwise.llm.openai_compat import OpenAICompatChat
+from watchwise.llm.registry import build_chat_model
+from watchwise.llm.stub import StubChat
+from watchwise.tier2.vlm.chat_adapter import ChatModelVLM
+from watchwise.tier3.backends.scripted import ScriptedBackend
+from watchwise.tier3.backends.tool_loop import NUDGE, ToolLoopBackend
+from watchwise.tier3.investigator import Investigator
+from watchwise.tools.base import ToolContext
+from watchwise.types import Frame, ScreenResult, Verdict
+from watchwise.wiring import build_agent_backend, build_system
 from tests.conftest import NIGHT_TS, make_alert
 
 TOOL = ToolSpec(
@@ -75,7 +75,7 @@ def fake_llm():
 
 @pytest.fixture
 def tool_ctx(nvr_client, store, patterns, tmp_path):
-    from sentinel.tier2.vlm.stub import StubVLM
+    from watchwise.tier2.vlm.stub import StubVLM
 
     return ToolContext(
         nvr=nvr_client,
@@ -216,6 +216,22 @@ async def test_openai_compat_recovers_tool_calls_and_strips_thinking(fake_llm):
     assert result.content == "" and result.reasoning == "hmm"
 
 
+def test_a_configured_key_that_is_missing_fails_clearly(monkeypatch):
+    monkeypatch.delenv("WATCHWISE_OPENAI_API_KEY", raising=False)
+    with pytest.raises(ChatModelError, match="WATCHWISE_OPENAI_API_KEY is not set"):
+        OpenAICompatChat("gpt", "https://api.openai.com/v1", api_key_env="WATCHWISE_OPENAI_API_KEY")
+
+
+def test_a_missing_project_key_never_falls_back_to_another_claude_credential(monkeypatch):
+    pytest.importorskip("anthropic")
+    from watchwise.llm.anthropic import AnthropicChat
+
+    monkeypatch.delenv("WATCHWISE_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "shared-key")  # must not be used instead
+    with pytest.raises(ChatModelError, match="WATCHWISE_ANTHROPIC_API_KEY is not set"):
+        AnthropicChat("claude-opus-5-5", api_key_env="WATCHWISE_ANTHROPIC_API_KEY")
+
+
 async def test_openai_compat_errors_become_chat_model_errors(fake_llm):
     state, client = fake_llm
     state.status = 500
@@ -267,7 +283,7 @@ async def test_ollama_missing_model_says_how_to_fix_it(fake_llm):
 def _anthropic_chat(monkeypatch, responses, model="claude-opus-5-5", **kwargs):
     anthropic = pytest.importorskip("anthropic")
     httpx2 = pytest.importorskip("httpx2")
-    from sentinel.llm.anthropic import AnthropicChat
+    from watchwise.llm.anthropic import AnthropicChat
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     captured: list[dict] = []
@@ -378,11 +394,11 @@ def test_registry_builds_each_provider():
 
 def test_roles_must_name_defined_models():
     with pytest.raises(ValueError, match="roles.chat refers to model 'ghost'"):
-        SentinelConfig(roles=RolesSettings(chat="ghost"))
+        WatchwiseConfig(roles=RolesSettings(chat="ghost"))
 
 
 def test_screener_role_overrides_the_vlm_model_but_keeps_tuning():
-    cfg = SentinelConfig(
+    cfg = WatchwiseConfig(
         models={"local": ModelEndpoint(provider="ollama", model="qwen3-vl:2b", base_url="http://o:11434", context_window=4096)},
         roles=RolesSettings(screener="local"),
         vlm=VLMSettings(frames=1, max_image_edge=448),
@@ -393,14 +409,14 @@ def test_screener_role_overrides_the_vlm_model_but_keeps_tuning():
 
 
 def test_old_configs_keep_their_behaviour():
-    legacy = SentinelConfig.model_validate({"vlm": {"backend": "stub"}, "agent": {"max_iterations": 5}})
+    legacy = WatchwiseConfig.model_validate({"vlm": {"backend": "stub"}, "agent": {"max_iterations": 5}})
     assert legacy.investigator_backend() == "scripted"
     assert legacy.screener_settings() == legacy.vlm
 
 
 def test_auto_backend_resolution():
-    real = SentinelConfig(models={"m": ModelEndpoint(provider="ollama", model="x")}, roles=RolesSettings(investigator="m"))
-    stub = SentinelConfig(models={"m": ModelEndpoint(provider="stub")}, roles=RolesSettings(investigator="m"))
+    real = WatchwiseConfig(models={"m": ModelEndpoint(provider="ollama", model="x")}, roles=RolesSettings(investigator="m"))
+    stub = WatchwiseConfig(models={"m": ModelEndpoint(provider="stub")}, roles=RolesSettings(investigator="m"))
     assert real.investigator_backend() == "tools"
     assert stub.investigator_backend() == "scripted"
     pinned = real.model_copy(update={"agent": AgentSettings(backend="scripted")})
@@ -414,7 +430,7 @@ def test_env_interpolation_with_defaults():
 
 
 async def test_wiring_picks_the_tool_loop_for_a_real_investigator(tool_ctx):
-    cfg = SentinelConfig(
+    cfg = WatchwiseConfig(
         models={"inv": ModelEndpoint(provider="ollama", model="qwen3-vl:4b")},
         roles=RolesSettings(investigator="inv"),
     )
@@ -423,7 +439,7 @@ async def test_wiring_picks_the_tool_loop_for_a_real_investigator(tool_ctx):
     assert backend.model == "qwen3-vl:4b"
     await backend.aclose()
 
-    stub_cfg = SentinelConfig(models={"s": ModelEndpoint()}, roles=RolesSettings(investigator="s"))
+    stub_cfg = WatchwiseConfig(models={"s": ModelEndpoint()}, roles=RolesSettings(investigator="s"))
     assert isinstance(build_agent_backend(stub_cfg, tool_ctx)[0], ScriptedBackend)
 
 
@@ -501,7 +517,7 @@ async def test_a_transport_failure_marks_the_investigation_failed(tool_ctx, stor
 
 async def test_the_pipeline_runs_tier_three_on_the_configured_model(config, nvr_client, monkeypatch):
     chat = StubChat(script=[call(camera="cam_yard"), conclusion("suspicious", 0.88, "unknown person, no roster match")])
-    monkeypatch.setattr("sentinel.llm.registry.build_chat_model", lambda endpoint: chat)
+    monkeypatch.setattr("watchwise.llm.registry.build_chat_model", lambda endpoint: chat)
     config.models = {"inv": ModelEndpoint(provider="openai_compat", model="any", base_url="http://unused")}
     config.roles = RolesSettings(investigator="inv")
     config.agent = AgentSettings(max_concurrency=1, timeout_s=30.0)

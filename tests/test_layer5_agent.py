@@ -13,21 +13,21 @@ import asyncio
 
 import pytest
 
-from sentinel.config import AgentSettings, DecisionSettings, MemorySettings
-from sentinel.decision import DecisionPolicy
-from sentinel.memory.short_term import ShortTermMemory
-from sentinel.tier2.gate import GateResult
-from sentinel.tier3.backends.base import (
+from watchwise.config import AgentSettings, DecisionSettings, MemorySettings
+from watchwise.decision import DecisionPolicy
+from watchwise.memory.short_term import ShortTermMemory
+from watchwise.tier2.gate import GateResult
+from watchwise.tier3.backends.base import (
     AgentBackend,
     Conclusion,
     ToolRunner,
     parse_conclusion,
 )
-from sentinel.tier3.backends.scripted import ScriptedBackend
-from sentinel.tier3.investigator import InvestigationQueue, Investigator
-from sentinel.tools.base import ToolContext
-from sentinel.tools.duty_roster import DutyRoster
-from sentinel.types import (
+from watchwise.tier3.backends.scripted import ScriptedBackend
+from watchwise.tier3.investigator import InvestigationQueue, Investigator
+from watchwise.tools.base import ToolContext
+from watchwise.tools.duty_roster import DutyRoster
+from watchwise.types import (
     Disposition,
     Investigation,
     ScreenResult,
@@ -40,7 +40,7 @@ from tests.conftest import NIGHT_TS, make_alert
 
 @pytest.fixture
 def tool_ctx(nvr_client, store, patterns, tmp_path):
-    from sentinel.tier2.vlm.stub import StubVLM
+    from watchwise.tier2.vlm.stub import StubVLM
 
     return ToolContext(
         nvr=nvr_client,
@@ -131,7 +131,7 @@ async def test_multi_camera_activity_pushes_toward_suspicious(investigator, nvr_
 
 
 async def test_a_disarmed_system_pushes_toward_benign(investigator, tool_ctx, tmp_path):
-    from sentinel.tools.device_status import ArmingState
+    from watchwise.tools.device_status import ArmingState
 
     ArmingState(tool_ctx.config_cache["arming_path"]).set("disarmed")
     inv = await investigator.investigate(make_alert(labels=["person"]), UNCERTAIN)
@@ -297,6 +297,35 @@ async def test_queue_never_blocks_the_caller_when_full(investigator):
         assert accepted is True, "submit must always accept, dropping the oldest instead"
     assert queue.queue.qsize() == 2
     assert queue.stats["dropped"] == 8
+
+
+async def test_stop_returns_even_if_a_worker_absorbs_its_cancellation(tool_ctx, store):
+    """Shutdown must never hang. It did on Python 3.11, where wait_for could
+    swallow a cancellation that arrived just as an investigation finished,
+    leaving the worker alive and stop() awaiting it forever."""
+    started = asyncio.Event()
+
+    class Stubborn(AgentBackend):
+        name = "stubborn"
+
+        async def run(self, ctx, screen, memory, runner):
+            started.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                pass  # absorb the cancellation, as the 3.11 bug did
+            return Conclusion(Verdict.UNCERTAIN, 0.0, "absorbed")
+
+    investigator = Investigator(
+        Stubborn(), tool_ctx, store, AgentSettings(timeout_s=60.0), MemorySettings()
+    )
+    queue = InvestigationQueue(investigator, AgentSettings(max_concurrency=1))
+    await queue.start()
+    queue.submit(make_alert(), UNCERTAIN)
+    await started.wait()
+    async with asyncio.timeout(10):
+        await queue.stop(grace_s=0.2)
+    assert queue._workers == []
 
 
 async def test_a_failing_investigation_does_not_kill_the_worker(tool_ctx, store):

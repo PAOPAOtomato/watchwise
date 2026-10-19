@@ -1,12 +1,12 @@
-# Sentinel configuration reference.
+# Watchwise configuration reference.
 #
-# You normally don't write this by hand: `sentinel init` generates
-# config/sentinel.yml from a hardware profile (see `sentinel profiles`).
+# You normally don't write this by hand: `watchwise init` generates
+# config/watchwise.yml from a hardware profile (see `watchwise profiles`).
 # This file documents every section. ${VAR:-default} values are read from the
-# environment / .env; SENTINEL_* variables override individual settings
-# (see sentinel/config.py).
+# environment / .env; WATCHWISE_* variables override individual settings
+# (see watchwise/config.py).
 
-# Tier 1: the NVR. Sentinel only reads Frigate's HTTP API and MQTT.
+# Tier 1: the NVR. Watchwise only reads Frigate's HTTP API and MQTT.
 nvr:
   # Port 5000 is Frigate's internal API. From the compose network:
   # http://frigate:5000. From the host: http://localhost:5000.
@@ -18,14 +18,14 @@ mqtt:
   host: ${MQTT_HOST:-localhost}
   port: 1883
   topic_prefix: frigate # must match Frigate's mqtt.topic_prefix
-  client_id: sentinel
+  client_id: watchwise
 
 # Model endpoints, by name. provider is one of:
 #   stub           deterministic stand-in: no model, no cost (tests, demos)
 #   ollama         a local Ollama server (native API, sets the context length)
 #   openai_compat  any OpenAI-compatible server: OpenAI, Groq, Gemini,
 #                  OpenRouter, LM Studio, llama.cpp, vLLM, OpenVINO MS
-#   anthropic      Claude via the Anthropic SDK (pip install "sentinel[anthropic]")
+#   anthropic      Claude via the Anthropic SDK (pip install "watchwise[anthropic]")
 # api_key_env names a variable in .env; keys never go in this file.
 models:
   local:
@@ -52,7 +52,7 @@ models:
 roles:
   screener: local # tier 2: looks at frames, says benign / suspicious / uncertain
   investigator: local # tier 3: tool-calling agent for the hard cases
-  chat: local # conversation (Ask Sentinel)
+  chat: local # conversation (Ask Watchwise)
   # chat_escalation: cloud
 
 # Tier-2 tuning. The model comes from roles.screener.
@@ -91,7 +91,7 @@ gate:
   memory_min_corrections: 3
 
 memory:
-  db_path: ./data/sentinel.db
+  db_path: ./data/watchwise.db
   embedding_backend: hash
   embedding_dim: 256
   short_term_max_items: 40

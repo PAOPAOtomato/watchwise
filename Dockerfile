@@ -8,13 +8,13 @@ WORKDIR /app
 ARG EXTRAS=anthropic,mcp
 
 COPY pyproject.toml README.md LICENSE ./
-COPY sentinel ./sentinel
+COPY watchwise ./watchwise
 RUN pip install --no-cache-dir ".[${EXTRAS}]"
 
 ENV PYTHONUNBUFFERED=1 \
-    SENTINEL_DB_PATH=/data/sentinel.db
+    WATCHWISE_DB_PATH=/data/watchwise.db
 
 VOLUME ["/data"]
 EXPOSE 5055
 
-CMD ["sentinel", "serve", "--host", "0.0.0.0", "--port", "5055"]
+CMD ["watchwise", "serve", "--host", "0.0.0.0", "--port", "5055"]

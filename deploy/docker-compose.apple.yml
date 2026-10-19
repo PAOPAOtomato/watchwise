@@ -5,6 +5,6 @@ services:
   frigate:
     image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable-standard-arm64}
 
-  sentinel:
+  watchwise:
     environment:
       OLLAMA_URL: http://host.docker.internal:11434

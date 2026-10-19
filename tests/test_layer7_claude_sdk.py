@@ -14,21 +14,21 @@ from __future__ import annotations
 
 import pytest
 
-from sentinel.config import AgentSettings, SentinelConfig
-from sentinel.memory.short_term import ShortTermMemory
-from sentinel.tier3.backends.base import ToolRunner
-from sentinel.tier3.backends.claude_sdk import ClaudeSDKBackend, credentials_present
-from sentinel.tier3.backends.scripted import ScriptedBackend
-from sentinel.tools.base import ToolContext
-from sentinel.tools.registry import ALL_TOOLS
-from sentinel.types import Investigation
-from sentinel.wiring import build_agent_backend
+from watchwise.config import AgentSettings, WatchwiseConfig
+from watchwise.memory.short_term import ShortTermMemory
+from watchwise.tier3.backends.base import ToolRunner
+from watchwise.tier3.backends.claude_sdk import ClaudeSDKBackend, credentials_present
+from watchwise.tier3.backends.scripted import ScriptedBackend
+from watchwise.tools.base import ToolContext
+from watchwise.tools.registry import ALL_TOOLS
+from watchwise.types import Investigation
+from watchwise.wiring import build_agent_backend
 from tests.conftest import make_alert
 
 
 @pytest.fixture
 def tool_ctx(nvr_client, store, patterns, tmp_path):
-    from sentinel.tier2.vlm.stub import StubVLM
+    from watchwise.tier2.vlm.stub import StubVLM
 
     return ToolContext(
         nvr=nvr_client,
@@ -60,7 +60,7 @@ def test_backend_reports_ready_with_a_key(monkeypatch):
 def test_wiring_falls_back_loudly_when_no_credentials(tool_ctx, monkeypatch, caplog):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
-    config = SentinelConfig(agent=AgentSettings(backend="claude_sdk"))
+    config = WatchwiseConfig(agent=AgentSettings(backend="claude_sdk"))
 
     with caplog.at_level("WARNING"):
         backend, status = build_agent_backend(config, tool_ctx)
@@ -72,7 +72,7 @@ def test_wiring_falls_back_loudly_when_no_credentials(tool_ctx, monkeypatch, cap
 
 def test_wiring_selects_the_sdk_backend_when_credentials_exist(tool_ctx, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    config = SentinelConfig(
+    config = WatchwiseConfig(
         agent=AgentSettings(backend="claude_sdk", model="claude-opus-5-5")
     )
     backend, status = build_agent_backend(config, tool_ctx)
@@ -82,7 +82,7 @@ def test_wiring_selects_the_sdk_backend_when_credentials_exist(tool_ctx, monkeyp
 
 
 def test_scripted_is_the_default(tool_ctx):
-    backend, status = build_agent_backend(SentinelConfig(), tool_ctx)
+    backend, status = build_agent_backend(WatchwiseConfig(), tool_ctx)
     assert isinstance(backend, ScriptedBackend)
     assert status == "configured"
 
@@ -247,7 +247,7 @@ async def test_a_broken_sdk_session_yields_uncertain_not_an_exception(tool_ctx, 
     memory.seed(make_alert())
     conclusion = await backend.run(make_alert(), None, memory, ToolRunner(tool_ctx, memory, inv))
 
-    from sentinel.types import Verdict
+    from watchwise.types import Verdict
 
     assert conclusion.verdict is Verdict.UNCERTAIN
     assert conclusion.confidence == 0.0
@@ -258,7 +258,7 @@ async def test_a_broken_sdk_session_yields_uncertain_not_an_exception(tool_ctx, 
 
 
 def test_system_prompt_states_the_anti_guessing_rule():
-    from sentinel.tier3 import prompts
+    from watchwise.tier3 import prompts
 
     assert "Do not guess" in prompts.SYSTEM
     assert "2-3 rounds" in prompts.SYSTEM
@@ -266,8 +266,8 @@ def test_system_prompt_states_the_anti_guessing_rule():
 
 
 def test_task_prompt_carries_the_alert_and_the_screening_reason():
-    from sentinel.tier3 import prompts
-    from sentinel.types import ScreenResult, Verdict
+    from watchwise.tier3 import prompts
+    from watchwise.types import ScreenResult, Verdict
 
     screen = ScreenResult(
         verdict=Verdict.UNCERTAIN, confidence=0.4, reason="too dark to tell",
@@ -285,7 +285,7 @@ def test_task_prompt_carries_the_alert_and_the_screening_reason():
 
 
 def test_tool_manifest_covers_every_tool():
-    from sentinel.tier3 import prompts
+    from watchwise.tier3 import prompts
 
     manifest = prompts.tool_manifest()
     for tool in ALL_TOOLS:

@@ -15,12 +15,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from sentinel import cli
-from sentinel.config import SentinelConfig, interpolate_env
-from sentinel.hw.detect import GPUInfo, HardwareReport, detect_hardware
-from sentinel.hw.profiles import CloudProvider, load_catalog, recommend, resolve
-from sentinel.setup.plan import apply, plan_file
-from sentinel.setup.render import build_config_dict, render_config
+from watchwise import cli
+from watchwise.config import WatchwiseConfig, interpolate_env
+from watchwise.hw.detect import GPUInfo, HardwareReport, detect_hardware
+from watchwise.hw.profiles import CloudProvider, load_catalog, recommend, resolve
+from watchwise.setup.plan import apply, plan_file
+from watchwise.setup.render import build_config_dict, render_config
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -55,7 +55,7 @@ def report(accelerator="none", memory=None, ram=16.0, keys=()):
         gpus = [GPUInfo("apple", "Apple M2", vram_gb=ram, integrated=True)]
     else:
         gpus = [GPUInfo("intel", "Intel(R) Graphics", integrated=True)]
-    from sentinel.hw.detect import API_KEY_VARS
+    from watchwise.hw.detect import API_KEY_VARS
 
     return HardwareReport(
         os="Linux",
@@ -197,17 +197,52 @@ def test_cloud_roles_get_per_role_tuning(catalog):
 
 def _fake_cloud() -> CloudProvider:
     return CloudProvider(
-        name="fake", env="FAKE_KEY", label="Fake",
+        name="fake", envs=["FAKE_KEY"], label="Fake",
         endpoint={"provider": "openai_compat", "base_url": "https://example.invalid/v1",
-                  "model": "fake", "api_key_env": "FAKE_KEY"},
+                  "model": "fake"},
     )
+
+
+def test_a_key_just_for_watchwise_wins_over_the_shared_one(catalog):
+    both = report("none", keys=("WATCHWISE_OPENAI_API_KEY", "OPENAI_API_KEY"))
+    rec = recommend(catalog, both)
+    assert rec.cloud.env == "WATCHWISE_OPENAI_API_KEY" and rec.cloud.project_scoped
+    models, roles = resolve(rec.profile, rec.cloud)
+    assert models[roles["chat"]]["api_key_env"] == "WATCHWISE_OPENAI_API_KEY"
+    assert any("just for Watchwise" in r for r in rec.reasons)
+
+    shared = recommend(catalog, report("none", keys=("OPENAI_API_KEY",)))
+    assert shared.cloud.env == "OPENAI_API_KEY" and not shared.cloud.project_scoped
+
+
+def test_an_explicit_provider_without_a_key_points_at_the_project_variable(catalog):
+    rec = recommend(catalog, report("none"), cloud="anthropic")
+    models, roles = resolve(catalog.profiles["cpu-hybrid"], rec.cloud)
+    assert models[roles["investigator"]]["api_key_env"] == "WATCHWISE_ANTHROPIC_API_KEY"
+
+
+def test_every_key_variable_in_the_catalog_is_detected(catalog):
+    from watchwise.hw.detect import API_KEY_VARS
+
+    for provider in catalog.cloud_providers.values():
+        assert provider.envs[0].startswith("WATCHWISE_"), provider.name
+        assert set(provider.envs) <= set(API_KEY_VARS), provider.name
+
+
+def test_doctor_says_which_key_it_found_without_showing_it(monkeypatch, capsys):
+    rep = report("none", keys=("WATCHWISE_OPENAI_API_KEY",))
+    monkeypatch.setattr("watchwise.hw.detect.detect_hardware", lambda **kw: rep)
+    assert cli.main(["doctor", "--no-probe"]) == 0
+    out = capsys.readouterr().out
+    assert "OpenAI: WATCHWISE_OPENAI_API_KEY (Watchwise only)" in out
+    assert "cpu-hybrid" in out
 
 
 def test_every_shipped_profile_renders_a_config_the_service_loads(catalog):
     for profile in catalog.profiles.values():
         models, roles = resolve(profile, _fake_cloud() if profile.needs_cloud else None)
         text = render_config(profile, build_config_dict(profile, models, roles))
-        cfg = SentinelConfig.model_validate(interpolate_env(yaml.safe_load(text), env={}))
+        cfg = WatchwiseConfig.model_validate(interpolate_env(yaml.safe_load(text), env={}))
         assert cfg.profile == profile.name
         for role in ("screener", "investigator", "chat"):
             assert cfg.endpoint(role) is not None, f"{profile.name}: {role} has no model"
@@ -231,7 +266,7 @@ def test_rendering_is_deterministic(catalog):
 
 
 def test_plan_apply_is_idempotent_and_backs_up(tmp_path):
-    target = tmp_path / "config" / "sentinel.yml"
+    target = tmp_path / "config" / "watchwise.yml"
     created = apply([plan_file(target, "a: 1\n")])[0]
     assert created.action == "create" and target.read_text() == "a: 1\n"
 
@@ -259,7 +294,7 @@ def test_existing_secrets_are_never_overwritten(tmp_path):
 @pytest.fixture
 def fixed_machine(monkeypatch):
     rep = report("none")
-    monkeypatch.setattr("sentinel.hw.detect.detect_hardware", lambda **kw: rep)
+    monkeypatch.setattr("watchwise.hw.detect.detect_hardware", lambda **kw: rep)
     return rep
 
 
@@ -287,7 +322,7 @@ def test_cli_init_writes_then_is_a_no_op(fixed_machine, tmp_path, capsys):
     (tmp_path / ".env.example").write_text("OPENAI_API_KEY=\n")
     args = ["init", "--profile", "demo", "--root", str(tmp_path), "--yes"]
     assert cli.main(args) == 0
-    cfg = SentinelConfig.load(tmp_path / "config" / "sentinel.yml")
+    cfg = WatchwiseConfig.load(tmp_path / "config" / "watchwise.yml")
     assert cfg.profile == "demo" and cfg.investigator_backend() == "scripted"
     assert (tmp_path / ".env").read_text() == "OPENAI_API_KEY=\n"
 
@@ -313,7 +348,7 @@ def test_cli_init_deploy_selects_compose_files(fixed_machine, tmp_path):
 
 
 def test_cli_check_with_stub_models(tmp_path, capsys):
-    path = tmp_path / "sentinel.yml"
+    path = tmp_path / "watchwise.yml"
     path.write_text(
         "models: {stub: {provider: stub}}\n"
         "roles: {screener: stub, investigator: stub, chat: stub}\n"
@@ -352,7 +387,7 @@ def test_dotenv_loading_never_overrides_the_environment(tmp_path, monkeypatch):
 
 
 def test_the_annotated_reference_config_loads():
-    cfg = SentinelConfig.model_validate(
+    cfg = WatchwiseConfig.model_validate(
         interpolate_env(yaml.safe_load((REPO / "config.example.yml").read_text()), env={})
     )
     assert cfg.endpoint("investigator").provider == "ollama"
@@ -368,12 +403,12 @@ def test_synthetic_check_frame_is_a_jpeg():
 
 def test_compose_files_parse_and_wire_the_services():
     base = yaml.safe_load((REPO / "deploy" / "docker-compose.yml").read_text())
-    assert {"mqtt", "frigate", "sentinel"} <= set(base["services"])
-    sentinel = base["services"]["sentinel"]
-    assert sentinel["environment"]["FRIGATE_URL"] == "http://frigate:5000"
+    assert {"mqtt", "frigate", "watchwise"} <= set(base["services"])
+    watchwise = base["services"]["watchwise"]
+    assert watchwise["environment"]["FRIGATE_URL"] == "http://frigate:5000"
     for overlay in sorted((REPO / "deploy").glob("docker-compose.*.yml")):
         data = yaml.safe_load(overlay.read_text())
         assert "services" in data, overlay.name
     frigate_cfg = yaml.safe_load((REPO / "deploy" / "frigate" / "config.example.yml").read_text())
     assert frigate_cfg["mqtt"]["host"] == "mqtt"
-    assert frigate_cfg["mqtt"]["topic_prefix"] == SentinelConfig().mqtt.topic_prefix
+    assert frigate_cfg["mqtt"]["topic_prefix"] == WatchwiseConfig().mqtt.topic_prefix

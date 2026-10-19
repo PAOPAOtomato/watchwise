@@ -1,7 +1,7 @@
-# Frigate + MQTT + Sentinel.
+# Frigate + MQTT + Watchwise.
 #
 # Hardware-specific pieces live in the overlay files next to this one.
-# `sentinel init --deploy` writes deploy/.env, which tells docker compose which
+# `watchwise init --deploy` writes deploy/.env, which tells docker compose which
 # overlays to use on this machine, so from this folder you only ever run:
 #
 #     docker compose up -d
@@ -33,12 +33,12 @@ services:
           size: 1000000000
     ports:
       - "8971:8971"            # Frigate web UI (authenticated)
-      - "127.0.0.1:5000:5000"  # internal API: Sentinel on the host uses it; never expose it
+      - "127.0.0.1:5000:5000"  # internal API: Watchwise on the host uses it; never expose it
       - "8554:8554"            # RTSP restream
       - "8555:8555/tcp"        # WebRTC
       - "8555:8555/udp"
 
-  sentinel:
+  watchwise:
     build:
       context: ..
     restart: unless-stopped
@@ -52,14 +52,14 @@ services:
       FRIGATE_URL: http://frigate:5000
       MQTT_HOST: mqtt
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
-      SENTINEL_CONFIG: /app/config/sentinel.yml
-      SENTINEL_DB_PATH: /data/sentinel.db
+      WATCHWISE_CONFIG: /app/config/watchwise.yml
+      WATCHWISE_DB_PATH: /data/watchwise.db
     volumes:
       - ../config:/app/config:ro
-      - sentinel-data:/data
+      - watchwise-data:/data
     ports:
       - "127.0.0.1:5055:5055"
-    command: ["sentinel", "serve", "--host", "0.0.0.0", "--port", "5055"]
+    command: ["watchwise", "serve", "--host", "0.0.0.0", "--port", "5055"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5055/health', timeout=5).status==200 else 1)"]
       interval: 30s
@@ -68,4 +68,4 @@ services:
       start_period: 20s
 
 volumes:
-  sentinel-data:
+  watchwise-data:

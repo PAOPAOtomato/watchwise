@@ -1,6 +1,6 @@
 # Hardware and models
 
-Sentinel runs three model roles, and each can run anywhere:
+Watchwise runs three model roles, and each can run anywhere:
 
 | Role | Job | What the model needs |
 |---|---|---|
@@ -9,13 +9,13 @@ Sentinel runs three model roles, and each can run anywhere:
 | `chat` | conversation with you (milestone 4) | tool calling, and speed |
 
 A **profile** is a starting point for which model plays which role on a given
-kind of machine. It is not a measurement. `sentinel doctor` picks one; `sentinel init`
-writes it to `config/sentinel.yml`; `sentinel check` tells you how it actually
+kind of machine. It is not a measurement. `watchwise doctor` picks one; `watchwise init`
+writes it to `config/watchwise.yml`; `watchwise check` tells you how it actually
 behaves on your machine. Everything is editable afterwards.
 
 ## How a profile is chosen
 
-`sentinel doctor` looks for, in order:
+`watchwise doctor` looks for, in order:
 
 1. **NVIDIA** (via `nvidia-smi`): 16 GB+ gives `nvidia-16gb`, 7 GB+ gives `nvidia`.
 2. **Apple Silicon** (unified memory): 15 GB+ gives `apple-silicon`, otherwise `apple-silicon-8gb`.
@@ -27,7 +27,7 @@ treated as no GPU, and `doctor` says so. Integrated Intel graphics and NPUs are
 reported but not used for local LLMs by default, because Ollama does not
 accelerate them; see [Intel iGPU / NPU](#intel-igpu--npu) for the alternatives.
 
-Override any choice: `sentinel init --profile nvidia`, `--cloud anthropic`,
+Override any choice: `watchwise init --profile nvidia`, `--cloud anthropic`,
 `--cloud-model <id>`.
 
 ## Memory: what fits
@@ -46,7 +46,7 @@ One vision+tools model (`qwen3-vl`) serves every local role on small machines,
 so only one model has to stay loaded. If Frigate's own GenAI features use the
 same Ollama server, it can share that model too.
 
-**Context length matters.** Sentinel sets `num_ctx` on every Ollama request
+**Context length matters.** Watchwise sets `num_ctx` on every Ollama request
 (`context_window` in the config). Ollama's default is small enough to cut a
 tool-calling prompt short silently, which shows up as a model that "ignores"
 its tools.
@@ -71,7 +71,7 @@ its tools.
 ### macOS (Apple Silicon)
 
 * Docker containers on a Mac cannot use the GPU, so Ollama must run
-  natively (install the Ollama app). The `apple` overlay points Sentinel's
+  natively (install the Ollama app). The `apple` overlay points Watchwise's
   container at `host.docker.internal:11434`.
 * Frigate uses the `stable-standard-arm64` image; for detection, use Frigate's
   Apple Silicon detector client (it also runs natively).
@@ -108,17 +108,26 @@ roles:
   chat: vllm
 ```
 
-Then run `sentinel check`: it sends a test image to the screener and a
+Then run `watchwise check`: it sends a test image to the screener and a
 one-tool conversation to the other roles, and reports latency and whether tool
 calling actually worked.
 
 ## Cloud models and privacy
 
-`sentinel init` picks a cloud provider by which key is in `.env`, in this
+`watchwise init` picks a cloud provider by which key is in `.env`, in this
 order: Anthropic, OpenAI, Gemini, Groq, OpenRouter. The suggested model for
-each is in [`sentinel/hw/profiles.yml`](../sentinel/hw/profiles.yml); for
-non-Anthropic providers it is a suggestion that `sentinel check` verifies, and
+each is in [`watchwise/hw/profiles.yml`](../watchwise/hw/profiles.yml); for
+non-Anthropic providers it is a suggestion that `watchwise check` verifies, and
 `init` asks you to confirm it.
+
+Each provider can be given **a key just for Watchwise**:
+`WATCHWISE_OPENAI_API_KEY`, `WATCHWISE_ANTHROPIC_API_KEY`, and so on. When
+set, it wins over the provider's usual variable (`OPENAI_API_KEY`, ...), and
+the generated config names it, so Watchwise never quietly uses a key that other
+tools share. If a configured key is missing, `watchwise check` says which
+variable to set instead of falling back to another credential. Most providers
+let you create a separate project or key with its own spending limit; doing so
+for Watchwise keeps experiments bounded.
 
 What leaves your machine depends on the profile, and `init` prints it:
 
@@ -143,7 +152,7 @@ Notes:
 
 ## Tuning for a slow machine
 
-In `config/sentinel.yml`:
+In `config/watchwise.yml`:
 
 * `vlm.frames: 1` and `vlm.max_image_edge: 448`: fewer and smaller images per alert.
 * `vlm.max_concurrency: 1`: one screening at a time; bursts queue instead.

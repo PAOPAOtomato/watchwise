@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from sentinel.config import GateSettings, VLMSettings
-from sentinel.memory.long_term import PatternLibrary
-from sentinel.tier2 import prompts
-from sentinel.tier2.gate import ScreeningGate
-from sentinel.tier2.sampling import FrameSampler, sample_timestamps
-from sentinel.tier2.screener import Screener
-from sentinel.tier2.vlm.base import VLMBackend, parse_screen_reply
-from sentinel.tier2.vlm.stub import StubVLM
-from sentinel.types import Frame, Verdict
+from watchwise.config import GateSettings, VLMSettings
+from watchwise.memory.long_term import PatternLibrary
+from watchwise.tier2 import prompts
+from watchwise.tier2.gate import ScreeningGate
+from watchwise.tier2.sampling import FrameSampler, sample_timestamps
+from watchwise.tier2.screener import Screener
+from watchwise.tier2.vlm.base import VLMBackend, parse_screen_reply
+from watchwise.tier2.vlm.stub import StubVLM
+from watchwise.types import Frame, Verdict
 from tests.conftest import DAY_TS, NIGHT_TS, make_alert
 
 

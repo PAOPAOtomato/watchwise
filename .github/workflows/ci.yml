@@ -12,6 +12,8 @@ jobs:
   test:
     name: tests (${{ matrix.os }}, py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
+    # Fail fast if anything hangs (the default job limit is six hours).
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -21,8 +23,8 @@ jobs:
           - { os: windows-latest, python: "3.12" }
           - { os: macos-latest, python: "3.12" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -31,7 +33,7 @@ jobs:
       - name: Test
         run: python -m pytest -q
       # Smoke tests on a real runner: hardware detection and the simulated day.
-      - name: sentinel doctor
-        run: sentinel doctor --no-probe
-      - name: sentinel demo
-        run: sentinel demo
+      - name: watchwise doctor
+        run: watchwise doctor --no-probe
+      - name: watchwise demo
+        run: watchwise demo

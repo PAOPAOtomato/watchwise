@@ -5,22 +5,22 @@ import time
 import httpx
 import pytest
 
-from sentinel.config import (
+from watchwise.config import (
     AgentSettings,
     DecisionSettings,
     GateSettings,
     MQTTSettings,
     MemorySettings,
     NVRSettings,
-    SentinelConfig,
+    WatchwiseConfig,
     VLMSettings,
 )
-from sentinel.fakes.nvr_server import FakeNVRState, build_fake_nvr
-from sentinel.memory.long_term import PatternLibrary
-from sentinel.memory.store import Store
-from sentinel.memory.vectors import HashEmbedder
-from sentinel.nvr.client import NVRClient
-from sentinel.types import AlertContext, Severity
+from watchwise.fakes.nvr_server import FakeNVRState, build_fake_nvr
+from watchwise.memory.long_term import PatternLibrary
+from watchwise.memory.store import Store
+from watchwise.memory.vectors import HashEmbedder
+from watchwise.nvr.client import NVRClient
+from watchwise.types import AlertContext, Severity
 
 # Fixed anchor so time-of-day dependent behaviour is deterministic.
 # 2026-03-10 02:30 local -> night.
@@ -31,7 +31,7 @@ DAY_TS = time.mktime((2026, 3, 10, 14, 0, 0, 0, 0, -1))
 
 @pytest.fixture
 def store(tmp_path):
-    s = Store(tmp_path / "sentinel.db")
+    s = Store(tmp_path / "watchwise.db")
     yield s
     s.close()
 
@@ -58,13 +58,13 @@ async def nvr_client(nvr_state):
 
 @pytest.fixture
 def config(tmp_path):
-    return SentinelConfig(
+    return WatchwiseConfig(
         nvr=NVRSettings(base_url="http://fake-nvr"),
         mqtt=MQTTSettings(enabled=False),
         gate=GateSettings(dedupe_window_s=60.0),
         vlm=VLMSettings(backend="stub", model="stub-vlm", frames=2),
         agent=AgentSettings(backend="scripted", max_concurrency=1, timeout_s=30.0),
-        memory=MemorySettings(db_path=str(tmp_path / "sentinel.db"), embedding_dim=128),
+        memory=MemorySettings(db_path=str(tmp_path / "watchwise.db"), embedding_dim=128),
         decision=DecisionSettings(),
     )
 

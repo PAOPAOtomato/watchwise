@@ -1,22 +1,23 @@
-# Sentinel
+# Watchwise
 
 **An AI guard for the cameras you already have.** Alerts that explain
 themselves, an agent you can question, and fewer false alarms every time you
 correct it, running on the hardware you already own.
 
+[![ci](https://github.com/PAOPAOtomato/watchwise/actions/workflows/ci.yml/badge.svg)](https://github.com/PAOPAOtomato/watchwise/actions/workflows/ci.yml)
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)
 
 Cameras are cheap; attention isn't. Motion alerts cry wolf (headlights, cats,
 the courier) until you mute them, and then the one that mattered is buried.
-Sentinel sits on top of [Frigate](https://frigate.video), the open-source NVR,
+Watchwise sits on top of [Frigate](https://frigate.video), the open-source NVR,
 and decides which alerts deserve a human. When it isn't sure, it investigates
 with tools before it answers, and it learns from every correction you make.
 Models run locally by default; cloud models are optional.
 
 > **Status: alpha.** The cascade, the investigation agent, the learning loop
 > and hardware-aware setup work and are tested. Phone alerts and chat are the
-> next milestones (see [Roadmap](#roadmap)). Sentinel has not yet been
+> next milestones (see [Roadmap](#roadmap)). Watchwise has not yet been
 > evaluated on a long-running real deployment; every number below is labeled
 > with how it was produced.
 
@@ -25,20 +26,20 @@ Models run locally by default; cloud models are optional.
 ## Try it in two minutes (no cameras, no GPU, no API key)
 
 ```bash
-git clone <this repo> sentinel && cd sentinel
+git clone https://github.com/PAOPAOtomato/watchwise.git && cd watchwise
 python -m venv .venv
 . .venv/bin/activate              # Windows: .venv\Scripts\activate
 pip install -e ".[anthropic]"
 
-sentinel demo                     # a simulated day through the full cascade
+watchwise demo                     # a simulated day through the full cascade
 ```
 
-`sentinel demo` runs 60 alerts through the real pipeline twice: once cold, then
+`watchwise demo` runs 60 alerts through the real pipeline twice: once cold, then
 again after a simulated reviewer has corrected what reached them. A simulated
 NVR and stand-in models are used, so the output measures routing, not
 perception:
 
-| Simulated day (`sentinel demo`) | Before corrections | After |
+| Simulated day (`watchwise demo`) | Before corrections | After |
 |---|---|---|
 | Alerts reaching a human | 38 of 60 | 6 of 60 |
 | Alerts resolved with no model call | 22 | 54 |
@@ -47,10 +48,10 @@ perception:
 ## Set it up for your hardware
 
 ```bash
-sentinel doctor     # read-only: what is this machine, what is running, what fits
-sentinel init       # writes config/sentinel.yml for that profile (shows a plan first)
-sentinel check      # talks to each configured model once: latency, tool calling
-sentinel serve      # runs against your Frigate (MQTT + HTTP API)
+watchwise doctor     # read-only: what is this machine, what is running, what fits
+watchwise init       # writes config/watchwise.yml for that profile (shows a plan first)
+watchwise check      # talks to each configured model once: latency, tool calling
+watchwise serve      # runs against your Frigate (MQTT + HTTP API)
 ```
 
 `doctor` detects your accelerator (NVIDIA / AMD / Apple Silicon / none), local
@@ -70,7 +71,7 @@ profile:
 | `cloud` | nothing to install | your cloud model for every role | images and text |
 | `demo` | trying it out | stand-ins, no models | nothing |
 
-Profiles are data ([`sentinel/hw/profiles.yml`](sentinel/hw/profiles.yml)), and
+Profiles are data ([`watchwise/hw/profiles.yml`](watchwise/hw/profiles.yml)), and
 the generated config is meant to be edited: any role can point at any model on
 any server. Re-running `init` shows a diff and backs up what it replaces.
 Details, memory sizes and per-platform notes: [docs/hardware.md](docs/hardware.md).
@@ -80,10 +81,16 @@ OpenAI, Google Gemini, Groq, OpenRouter, or anything OpenAI-compatible. On a
 CPU-only machine a cloud model is what makes conversation feel instant; in
 `cpu-hybrid`, frames still never leave the machine.
 
-### With Docker (Frigate + MQTT + Ollama + Sentinel)
+**Use a key just for Watchwise.** Put it in `.env` as
+`WATCHWISE_<PROVIDER>_API_KEY` (for example `WATCHWISE_OPENAI_API_KEY`). It
+takes precedence over the provider's usual variable, so Watchwise never uses a
+key that other tools on your machine share, and its spend is easy to cap and
+track on the provider's dashboard.
+
+### With Docker (Frigate + MQTT + Ollama + Watchwise)
 
 ```bash
-sentinel init --deploy          # also writes deploy/.env and deploy/frigate/config.yml
+watchwise init --deploy          # also writes deploy/.env and deploy/frigate/config.yml
 cd deploy && docker compose up -d
 ```
 
@@ -125,13 +132,13 @@ every machine. Add your cameras to `deploy/frigate/config.yml`.
   loses its authority.
 * **Evidence, not vibes.** Every verdict carries a confidence and the full
   investigation trace behind it.
-* **Additive.** Sentinel never writes to Frigate. It reads Frigate's HTTP API
+* **Additive.** Watchwise never writes to Frigate. It reads Frigate's HTTP API
   and MQTT, keeps its verdicts in its own database and serves them over its
   own API; removing it leaves Frigate unchanged.
 
 ### Model layer
 
-One provider-neutral interface (`sentinel/llm/`) serves every role:
+One provider-neutral interface (`watchwise/llm/`) serves every role:
 
 | Provider | Covers |
 |---|---|
@@ -162,7 +169,7 @@ malformed arguments are sent back to the model as errors instead of being run.
 | `GET` / `POST /arming` | arming state |
 
 The forensic tools are also exposed over **MCP**: in-process to the agent, and
-as a stdio server (`sentinel-mcp`, needs `pip install -e ".[mcp]"`) for Claude
+as a stdio server (`watchwise-mcp`, needs `pip install -e ".[mcp]"`) for Claude
 Desktop, Claude Code, Cursor or any MCP client.
 
 ---
@@ -174,7 +181,7 @@ Desktop, Claude Code, Cursor or any MCP client.
 | 1 | Cascade, investigation agent, MCP tools, learning loop | done |
 | 2 | Run anywhere: model layer, open-model investigator, hardware profiles, `doctor` / `init` / `check` | done |
 | 3 | Smart alerts on your phone (Telegram): snapshot, a one-line "why", one-tap Expected / Real / Snooze that teaches the memory, daily digest with spot-checks | next |
-| 4 | Ask Sentinel: chat about your cameras ("why didn't you alert me?", "the cleaner comes Thursdays"), with every change confirmed first | planned |
+| 4 | Ask Watchwise: chat about your cameras ("why didn't you alert me?", "the cleaner comes Thursdays"), with every change confirmed first | planned |
 | 5 | Setup assistant, agent-native setup via SKILL.md, measured hardware benchmarks | planned |
 | 6 | Interactive web demo | planned |
 
@@ -201,7 +208,7 @@ apps), plus recorded hardware-detection output from machines it never runs on,
 so it needs no GPU, cameras or API keys. Layout:
 
 ```
-sentinel/     the package: tier2/ (gate, VLM), tier3/ (agent), tools/, memory/,
+watchwise/     the package: tier2/ (gate, VLM), tier3/ (agent), tools/, memory/,
               llm/ (model layer), hw/ (detection + profiles), setup/, cli.py
 tests/        one file per layer
 deploy/       docker compose base + hardware overlays, Frigate template
@@ -210,11 +217,11 @@ docs/         hardware and model guide
 
 ## Credits
 
-Sentinel is the agent layer; the hard parts underneath are other people's work:
+Watchwise is the agent layer; the hard parts underneath are other people's work:
 
 * [Frigate](https://github.com/blakeblackshear/frigate) (MIT, © Frigate, Inc.):
   stream ingest, motion and object detection, recording, the event database.
-  Sentinel only talks to it over its public HTTP API and MQTT.
+  Watchwise only talks to it over its public HTTP API and MQTT.
 * [Ollama](https://ollama.com) and the open-weight models it serves.
 * [Model Context Protocol](https://modelcontextprotocol.io) and the Anthropic SDKs.
 

@@ -10,21 +10,21 @@ import time
 
 import pytest
 
-from sentinel.tools.base import ToolContext, summarize
-from sentinel.tools.cross_camera import TOOL as CROSS_TOOL
-from sentinel.tools.device_status import TOOL as DEVICE_TOOL
-from sentinel.tools.device_status import ArmingState
-from sentinel.tools.duty_roster import TOOL as ROSTER_TOOL
-from sentinel.tools.duty_roster import DutyRoster
-from sentinel.tools.frames import DESCRIBE_FRAMES_TOOL, GET_FRAMES_TOOL
-from sentinel.tools.registry import ALL_TOOLS, CATEGORIES, get_tool, tool_catalog
-from sentinel.tools.similar_alerts import TOOL as SIMILAR_TOOL
+from watchwise.tools.base import ToolContext, summarize
+from watchwise.tools.cross_camera import TOOL as CROSS_TOOL
+from watchwise.tools.device_status import TOOL as DEVICE_TOOL
+from watchwise.tools.device_status import ArmingState
+from watchwise.tools.duty_roster import TOOL as ROSTER_TOOL
+from watchwise.tools.duty_roster import DutyRoster
+from watchwise.tools.frames import DESCRIBE_FRAMES_TOOL, GET_FRAMES_TOOL
+from watchwise.tools.registry import ALL_TOOLS, CATEGORIES, get_tool, tool_catalog
+from watchwise.tools.similar_alerts import TOOL as SIMILAR_TOOL
 from tests.conftest import make_alert
 
 
 @pytest.fixture
 def tool_ctx(nvr_client, store, patterns, tmp_path):
-    from sentinel.tier2.vlm.stub import StubVLM
+    from watchwise.tier2.vlm.stub import StubVLM
 
     return ToolContext(
         nvr=nvr_client,
@@ -372,10 +372,10 @@ def test_summarize_truncates_and_marks_errors():
 
 
 def test_mcp_stdio_server_lists_every_tool(tool_ctx):
-    from sentinel.mcp.stdio_server import build_server
+    from watchwise.mcp.stdio_server import build_server
 
     server = build_server(tool_ctx)
-    assert server.name == "sentinel-forensics"
+    assert server.name == "watchwise-forensics"
     assert server.get_request_handler("tools/list") is not None
     assert server.get_request_handler("tools/call") is not None
 
@@ -385,7 +385,7 @@ async def test_mcp_stdio_handlers_round_trip(tool_ctx):
 
     import mcp.types as mcp_types
 
-    from sentinel.mcp.stdio_server import build_server
+    from watchwise.mcp.stdio_server import build_server
 
     server = build_server(tool_ctx)
     listed = await server.get_request_handler("tools/list").handler(None, None)
@@ -405,7 +405,7 @@ async def test_mcp_stdio_handlers_round_trip(tool_ctx):
 async def test_mcp_stdio_unknown_tool_is_an_error_not_a_crash(tool_ctx):
     import mcp.types as mcp_types
 
-    from sentinel.mcp.stdio_server import build_server
+    from watchwise.mcp.stdio_server import build_server
 
     server = build_server(tool_ctx)
     result = await server.get_request_handler("tools/call").handler(
@@ -416,7 +416,7 @@ async def test_mcp_stdio_unknown_tool_is_an_error_not_a_crash(tool_ctx):
 
 def test_sdk_mcp_server_builds_with_namespaced_tool_names(tool_ctx):
     """The in-process MCP server handed to the Claude Agent SDK."""
-    from sentinel.mcp.sdk_server import (
+    from watchwise.mcp.sdk_server import (
         SERVER_NAME,
         allowed_tool_names,
         build_sdk_mcp_server,
@@ -438,7 +438,7 @@ def test_sdk_mcp_server_builds_with_namespaced_tool_names(tool_ctx):
 async def test_sdk_mcp_tool_handler_returns_mcp_content(tool_ctx):
     import json
 
-    from sentinel.mcp.sdk_server import build_sdk_tools
+    from watchwise.mcp.sdk_server import build_sdk_tools
 
     tools = {t.name: t for t in build_sdk_tools(tool_ctx)}
     out = await tools["get_device_status"].handler({"camera": "cam_drive"})

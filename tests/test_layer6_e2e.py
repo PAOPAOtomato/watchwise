@@ -12,31 +12,31 @@ import asyncio
 import httpx
 import pytest
 
-from sentinel.config import (
+from watchwise.config import (
     AgentSettings,
     DecisionSettings,
     GateSettings,
     MQTTSettings,
     MemorySettings,
     NVRSettings,
-    SentinelConfig,
+    WatchwiseConfig,
     VLMSettings,
 )
-from sentinel.fakes.nvr_server import FakeNVRState, build_fake_nvr
-from sentinel.nvr.client import NVRClient
-from sentinel.types import AlertContext, Disposition, Severity, Stage, Verdict
-from sentinel.wiring import build_system
+from watchwise.fakes.nvr_server import FakeNVRState, build_fake_nvr
+from watchwise.nvr.client import NVRClient
+from watchwise.types import AlertContext, Disposition, Severity, Stage, Verdict
+from watchwise.wiring import build_system
 from tests.conftest import DAY_TS, NIGHT_TS
 
 
-def _config(tmp_path) -> SentinelConfig:
-    return SentinelConfig(
+def _config(tmp_path) -> WatchwiseConfig:
+    return WatchwiseConfig(
         nvr=NVRSettings(base_url="http://fake-nvr"),
         mqtt=MQTTSettings(enabled=False),
         gate=GateSettings(dedupe_window_s=30.0),
         vlm=VLMSettings(backend="stub", model="stub-vlm", frames=2),
         agent=AgentSettings(backend="scripted", max_concurrency=1, timeout_s=30.0),
-        memory=MemorySettings(db_path=str(tmp_path / "sentinel.db"), embedding_dim=128),
+        memory=MemorySettings(db_path=str(tmp_path / "watchwise.db"), embedding_dim=128),
         decision=DecisionSettings(),
     )
 
@@ -261,7 +261,7 @@ async def test_metrics_report_measured_numbers_not_asserted_ones(system):
 def client(tmp_path):
     from fastapi.testclient import TestClient
 
-    from sentinel.service import create_app
+    from watchwise.service import create_app
 
     state = FakeNVRState()
     nvr_client, _http = _fake_client(state)

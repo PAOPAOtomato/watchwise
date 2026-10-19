@@ -13,7 +13,7 @@ services:
       - "127.0.0.1:11434:11434"
     environment:
       # Default context for callers that do not set one (e.g. Frigate's own
-      # GenAI requests). Sentinel always sets num_ctx itself.
+      # GenAI requests). Watchwise always sets num_ctx itself.
       OLLAMA_CONTEXT_LENGTH: "8192"
       OLLAMA_KEEP_ALIVE: "30m"
 

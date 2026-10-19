@@ -11,9 +11,9 @@ import json
 
 import pytest
 
-from sentinel.nvr.client import NVRError
-from sentinel.nvr.source import review_payload_to_context
-from sentinel.types import Severity
+from watchwise.nvr.client import NVRError
+from watchwise.nvr.source import review_payload_to_context
+from watchwise.types import Severity
 
 
 async def test_version_config_and_cameras(nvr_client, nvr_state):
@@ -116,7 +116,7 @@ def test_unknown_severity_defaults_to_alert():
 async def test_replay_source_feeds_the_same_queue(tmp_path):
     import asyncio
 
-    from sentinel.nvr.source import ReplayAlertSource
+    from watchwise.nvr.source import ReplayAlertSource
 
     path = tmp_path / "reviews.json"
     path.write_text(

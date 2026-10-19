@@ -13,16 +13,16 @@ import time
 import numpy as np
 import pytest
 
-from sentinel.memory.feedback import FeedbackLoop
-from sentinel.memory.short_term import ShortTermMemory
-from sentinel.memory.vectors import (
+from watchwise.memory.feedback import FeedbackLoop
+from watchwise.memory.short_term import ShortTermMemory
+from watchwise.memory.vectors import (
     HashEmbedder,
     NVRCLIPEmbedder,
     build_embedder,
     cosine_search,
     decay_factor,
 )
-from sentinel.types import ScreenResult, Verdict
+from watchwise.types import ScreenResult, Verdict
 from tests.conftest import make_alert
 
 DAY = 86400.0
@@ -337,8 +337,8 @@ def test_review_load_measures_what_reached_a_human(store, patterns):
 
 
 def test_patterns_and_vectors_survive_a_restart(tmp_path):
-    from sentinel.memory.long_term import PatternLibrary
-    from sentinel.memory.store import Store
+    from watchwise.memory.long_term import PatternLibrary
+    from watchwise.memory.store import Store
 
     db = tmp_path / "s.db"
     store = Store(db)
