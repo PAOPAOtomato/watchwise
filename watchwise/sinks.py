@@ -90,6 +90,31 @@ class MQTTSink:
             self.client.publish(topic, body, qos=0, retain=False)
 
 
+class MQTTPublisher:
+    """A paho client that stays connected for publishing (reconnects itself).
+
+    ``MQTTSink`` needs only ``publish``; tests pass any object that has one.
+    """
+
+    def __init__(self, settings: Any):
+        import paho.mqtt.client as mqtt  # imported lazily; optional at runtime
+
+        self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2, client_id=f"{settings.client_id}-publisher"
+        )
+        if settings.username:
+            self.client.username_pw_set(settings.username, settings.password)
+        self.client.connect_async(settings.host, settings.port, settings.keepalive)
+        self.client.loop_start()
+
+    def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> Any:
+        return self.client.publish(topic, payload, qos=qos, retain=retain)
+
+    async def aclose(self) -> None:
+        self.client.loop_stop()
+        self.client.disconnect()
+
+
 class WebhookSink:
     def __init__(self, url: str, timeout_s: float = 5.0):
         import httpx

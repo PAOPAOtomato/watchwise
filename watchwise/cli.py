@@ -5,6 +5,7 @@
     watchwise check       talk to every configured model once; report latency and tool use
     watchwise demo        a simulated day through the full cascade, no cameras needed
     watchwise profiles    list the hardware profiles
+    watchwise telegram    link a Telegram chat for phone alerts, or send a test card
     watchwise serve       run the service (the default; old-style flags still work)
 
 Output is plain ASCII so it renders on any console.
@@ -25,7 +26,7 @@ from typing import Any
 
 import yaml
 
-COMMANDS = ("serve", "doctor", "init", "check", "demo", "profiles")
+COMMANDS = ("serve", "doctor", "init", "check", "demo", "profiles", "telegram")
 DEFAULT_CONFIG = Path("config/watchwise.yml")
 
 
@@ -372,7 +373,14 @@ async def _check_screener(config: Any) -> CheckResult:
     finally:
         await vlm.aclose()
     if result.error:
-        return CheckResult("screener", target, "fail", result.reason[:300], result.latency_ms)
+        detail = result.reason[:300]
+        if settings.backend == "ollama" and "connect" in str(result.error).lower():
+            where = settings.base_url or "http://localhost:11434"
+            detail = (
+                f"Ollama is not reachable at {where}. Install it from https://ollama.com, "
+                f"then run: ollama pull {settings.model}"
+            )
+        return CheckResult("screener", target, "fail", detail, result.latency_ms)
     return CheckResult(
         "screener",
         target,
@@ -470,6 +478,149 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+# ---------------------------------------------------------------- telegram
+
+
+def cmd_telegram(args: argparse.Namespace) -> int:
+    from watchwise.config import WatchwiseConfig
+
+    path = resolve_config_path(args.config)
+    config = WatchwiseConfig.load(path)
+    settings = config.notify.telegram
+    token = os.environ.get(settings.bot_token_env, "")
+    if not token:
+        print(
+            f"error: {settings.bot_token_env} is not set. In Telegram, talk to @BotFather, "
+            f"send /newbot, and put the token it gives you in .env as "
+            f"{settings.bot_token_env}=<token>.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.telegram_command == "link":
+        return asyncio.run(_telegram_link(args, path, config, token))
+    return asyncio.run(_telegram_test(config, token))
+
+
+async def _telegram_link(args: argparse.Namespace, path: Path | None, config: Any, token: str) -> int:
+    import time
+
+    from watchwise.config import WatchwiseConfig, interpolate_env
+    from watchwise.notify.telegram import TelegramAPI, TelegramError
+    from watchwise.setup.plan import apply, plan_file
+    from watchwise.setup.render import replace_top_level_block
+
+    if path is None or not path.is_file():
+        print("error: no config file yet; run `watchwise init` first.", file=sys.stderr)
+        return 2
+    api = TelegramAPI(token, base_url=config.notify.telegram.api_base_url)
+    try:
+        me = await api.get_me()
+        username = me.get("username", "your_bot")
+        print(f"Bot: @{username}. In Telegram, open https://t.me/{username} and send /start.")
+        print(f"Waiting up to {args.wait:g}s (stop `watchwise serve` first if it is running)...")
+        deadline = time.monotonic() + args.wait
+        offset: int | None = None
+        chat: dict[str, Any] | None = None
+        while chat is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            for update in await api.get_updates(offset=offset, timeout=int(min(10, remaining))):
+                offset = int(update["update_id"]) + 1
+                message = update.get("message") or {}
+                if chat is None and (message.get("text") or "").startswith("/start"):
+                    chat = message.get("chat") or None
+        if offset is not None:
+            await api.get_updates(offset=offset, timeout=0)  # confirm, so they are not replayed
+        if not chat:
+            print("No /start received. Run this again when you are ready.")
+            return 1
+        chat_id = int(chat["id"])
+        name = chat.get("first_name") or chat.get("title") or chat.get("username") or ""
+        print(f"Found chat {chat_id} {name}".rstrip())
+
+        text = path.read_text(encoding="utf-8")
+        notify = dict((yaml.safe_load(text) or {}).get("notify") or {})
+        telegram = dict(notify.get("telegram") or {})
+        chat_ids = [int(c) for c in telegram.get("chat_ids") or []]
+        if chat_id not in chat_ids:
+            chat_ids.append(chat_id)
+        telegram.update({"enabled": True, "chat_ids": chat_ids})
+        notify["telegram"] = telegram
+        new_text = replace_top_level_block(text, "notify", notify)
+        WatchwiseConfig.model_validate(interpolate_env(yaml.safe_load(new_text)))
+        change = plan_file(path, new_text, reason="connect this Telegram chat")
+        if change.writes:
+            print(change.diff, end="")
+            if not args.yes and not _yes_no("Apply?"):
+                print("Cancelled; nothing written.")
+                return 1
+            apply([change])
+            backup = f" (previous version saved as {change.backup.name})" if change.backup else ""
+            print(f"  wrote {path}{backup}")
+        else:
+            print("This chat is already connected.")
+        await api.send_message(
+            chat_id,
+            "✅ Linked. Watchwise alerts will come to this chat while "
+            "<code>watchwise serve</code> is running.",
+        )
+        print("Next: watchwise telegram test   # sends a sample card to this chat")
+        return 0
+    except TelegramError as exc:
+        print(f"error: Telegram said: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        await api.aclose()
+
+
+async def _telegram_test(config: Any, token: str) -> int:
+    import time
+
+    from watchwise.notify.presenter import (
+        CAPTION_LIMIT,
+        TEXT_LIMIT,
+        build_card,
+        keyboard_markup,
+    )
+    from watchwise.notify.telegram import TelegramAPI, TelegramError
+    from watchwise.types import AlertContext, Decision, Disposition, Severity, Stage
+
+    settings = config.notify.telegram
+    if not settings.chat_ids:
+        print("error: no chat connected yet; run `watchwise telegram link` first.", file=sys.stderr)
+        return 2
+    now = time.time()
+    ctx = AlertContext(
+        review_id="test", camera="test_camera", start_time=now, end_time=now + 5,
+        labels=["person"], zones=["driveway"],
+    )
+    decision = Decision(
+        review_id="test", disposition=Disposition.ALERTED, severity=Severity.ALERT,
+        confidence=0.82, rationale="test", stage=Stage.GATED,
+    )
+    card = build_card(ctx, decision)
+    card.lines = [
+        "This is a test card from Watchwise (a drawn image, not a camera).",
+        "On real alerts the buttons work while `watchwise serve` is running.",
+    ]
+    markup = keyboard_markup("test", "standard")
+    api = TelegramAPI(token, base_url=settings.api_base_url)
+    try:
+        for chat_id in settings.chat_ids:
+            if settings.send_images:
+                await api.send_photo(chat_id, synthetic_frame(), card.html(CAPTION_LIMIT), reply_markup=markup)
+            else:
+                await api.send_message(chat_id, card.html(TEXT_LIMIT), reply_markup=markup)
+            print(f"  sent a test card to chat {chat_id}")
+        return 0
+    except TelegramError as exc:
+        print(f"error: Telegram said: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        await api.aclose()
+
+
 # ---------------------------------------------------------------- demo / serve
 
 
@@ -557,6 +708,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     profiles = sub.add_parser("profiles", help="list hardware profiles")
     profiles.set_defaults(func=cmd_profiles)
+
+    telegram = sub.add_parser("telegram", help="connect phone alerts (Telegram)")
+    tsub = telegram.add_subparsers(dest="telegram_command", required=True)
+    link = tsub.add_parser("link", help="connect a Telegram chat: send /start to your bot")
+    link.add_argument("--config", default=None)
+    link.add_argument("--wait", type=float, default=120.0, help="seconds to wait for /start")
+    link.add_argument("--yes", "-y", action="store_true", help="apply without asking")
+    link.set_defaults(func=cmd_telegram)
+    test = tsub.add_parser("test", help="send a sample alert card to the connected chats")
+    test.add_argument("--config", default=None)
+    test.set_defaults(func=cmd_telegram)
     return parser
 
 

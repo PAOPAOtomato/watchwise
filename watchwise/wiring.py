@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,7 +23,7 @@ from watchwise.memory.vectors import build_embedder
 from watchwise.nvr.client import NVRClient
 from watchwise.nvr.source import AlertSource, MQTTAlertSource
 from watchwise.pipeline import Pipeline
-from watchwise.sinks import LogSink, MemorySink
+from watchwise.sinks import LogSink, MemorySink, MQTTPublisher, MQTTSink, WebhookSink
 from watchwise.tier2.gate import ScreeningGate
 from watchwise.tier2.sampling import FrameSampler
 from watchwise.tier2.screener import Screener
@@ -56,14 +57,22 @@ class System:
     memory_sink: MemorySink
     arming: ArmingState
     sources: list[AlertSource] = field(default_factory=list)
+    # Long-running workers with start()/stop(): the Telegram notifier and bot.
+    background: list[Any] = field(default_factory=list)
+    notifier: Any = None
+    bot: Any = None
     _closers: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
 
     async def start(self) -> None:
         await self.pipeline.start()
         for source in self.sources:
             await source.start()
+        for worker in self.background:
+            await worker.start()
 
     async def stop(self) -> None:
+        for worker in reversed(self.background):
+            await worker.stop()
         for source in self.sources:
             await source.stop()
         await self.pipeline.stop()
@@ -136,6 +145,8 @@ def build_system(
     *,
     nvr_client: NVRClient | None = None,
     start_sources: bool = True,
+    telegram_api: Any = None,
+    mqtt_publisher: Any = None,
 ) -> System:
     store = Store(config.memory.db_path)
     embedder = build_embedder(config.memory.embedding_backend, config.memory.embedding_dim)
@@ -170,6 +181,30 @@ def build_system(
     investigations = InvestigationQueue(investigator, config.agent)
 
     memory_sink = MemorySink()
+    sinks: list[Any] = [memory_sink, LogSink()]
+    closers: list[Callable[[], Awaitable[None]]] = [screener.aclose, backend.aclose, nvr.aclose]
+
+    notify = config.notify
+    if notify.mqtt.enabled:
+        publisher = mqtt_publisher or MQTTPublisher(config.mqtt)
+        sinks.append(MQTTSink(publisher, topic_prefix=notify.mqtt.topic_prefix))
+        if hasattr(publisher, "aclose"):
+            closers.append(publisher.aclose)
+    if notify.webhook_url:
+        webhook = WebhookSink(notify.webhook_url)
+        sinks.append(webhook)
+        closers.append(webhook.aclose)
+
+    notifier = bot = None
+    if notify.telegram.enabled:
+        notifier, bot, api = _build_telegram(
+            config, store, nvr, feedback, patterns, investigations, memory_sink, telegram_api
+        )
+        if notifier is not None:
+            sinks.append(notifier)
+            if telegram_api is None:
+                closers.append(api.aclose)
+
     alert_queue: asyncio.Queue[AlertContext] = asyncio.Queue(maxsize=256)
     pipeline = Pipeline(
         alert_queue,
@@ -177,7 +212,7 @@ def build_system(
         policy,
         store,
         investigations=investigations,
-        sinks=[memory_sink, LogSink()],
+        sinks=sinks,
     )
 
     sources: list[AlertSource] = []
@@ -199,9 +234,57 @@ def build_system(
         memory_sink=memory_sink,
         arming=arming,
         sources=sources,
+        background=[w for w in (notifier, bot) if w is not None],
+        notifier=notifier,
+        bot=bot,
     )
-    system._closers = [screener.aclose, backend.aclose, nvr.aclose]
+    system._closers = closers
     return system
+
+
+def _build_telegram(
+    config: WatchwiseConfig,
+    store: Store,
+    nvr: NVRClient,
+    feedback: FeedbackLoop,
+    patterns: PatternLibrary,
+    investigations: InvestigationQueue,
+    memory_sink: MemorySink,
+    api: Any = None,
+) -> tuple[Any, Any, Any]:
+    """Notifier + bot, or (None, None, None) if no token is configured.
+
+    A missing token is a warning, not a startup failure: alerts are still
+    processed and available over the API.
+    """
+    from watchwise.notify.actions import ActionHandler
+    from watchwise.notify.telegram import TelegramAPI, TelegramBot, TelegramNotifier
+
+    settings = config.notify.telegram
+    if api is None:
+        token = os.environ.get(settings.bot_token_env, "")
+        if not token:
+            logger.warning(
+                "notify.telegram is enabled but %s is not set; no phone alerts will be sent",
+                settings.bot_token_env,
+            )
+            return None, None, None
+        api = TelegramAPI(token, base_url=settings.api_base_url)
+    if not settings.chat_ids:
+        logger.warning(
+            "notify.telegram has no chat_ids; run `watchwise telegram link` to connect a chat"
+        )
+    notifier = TelegramNotifier(api, settings, store, nvr)
+    handler = ActionHandler(
+        store=store,
+        feedback=feedback,
+        patterns=patterns,
+        investigations=investigations,
+        memory_sink=memory_sink,
+        gate=config.gate,
+        snooze_minutes=settings.snooze_minutes,
+    )
+    return notifier, TelegramBot(api, settings, handler, notifier), api
 
 
 def _arming_path(config: WatchwiseConfig) -> Any:

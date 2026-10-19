@@ -101,6 +101,35 @@ CREATE TABLE IF NOT EXISTS vectors (
     vec             BLOB NOT NULL,
     PRIMARY KEY (kind, ref_id)
 );
+
+-- What each human correction did to memory, so it can be undone exactly.
+-- effect: reinforced (created or strengthened a pattern) | agreed | disagreed
+CREATE TABLE IF NOT EXISTS correction_effects (
+    correction_id   INTEGER NOT NULL,
+    pattern_id      TEXT NOT NULL,
+    effect          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_effects_corr ON correction_effects(correction_id);
+
+-- Alert cards sent to people, so they can be updated in place.
+CREATE TABLE IF NOT EXISTS notifications (
+    review_id       TEXT NOT NULL,
+    channel         TEXT NOT NULL,
+    chat_id         TEXT NOT NULL,
+    message_id      TEXT NOT NULL,
+    has_image       INTEGER NOT NULL DEFAULT 0,
+    footer          TEXT NOT NULL DEFAULT '',
+    keyboard        TEXT NOT NULL DEFAULT 'full',
+    created_at      REAL NOT NULL,
+    PRIMARY KEY (review_id, channel, chat_id)
+);
+
+-- Cameras whose notifications are muted until a time (alerts are still
+-- processed and recorded; only the phone stays quiet).
+CREATE TABLE IF NOT EXISTS snoozes (
+    camera          TEXT PRIMARY KEY,
+    until           REAL NOT NULL
+);
 """
 
 
@@ -213,6 +242,39 @@ class Store:
                 decision["review_id"],
             ),
         )
+
+    # ---------------- notifications ----------------
+
+    def add_notification(
+        self, review_id: str, channel: str, chat_id: str, message_id: str, *, has_image: bool
+    ) -> None:
+        self.execute(
+            "INSERT OR REPLACE INTO notifications(review_id, channel, chat_id, message_id, "
+            "has_image, footer, keyboard, created_at) VALUES (?,?,?,?,?,'','full',?)",
+            (review_id, channel, str(chat_id), str(message_id), int(has_image), time.time()),
+        )
+
+    def notifications_for(self, review_id: str, channel: str) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT * FROM notifications WHERE review_id=? AND channel=?", (review_id, channel)
+        )
+
+    def set_notification_state(
+        self, review_id: str, channel: str, *, footer: str, keyboard: str
+    ) -> None:
+        self.execute(
+            "UPDATE notifications SET footer=?, keyboard=? WHERE review_id=? AND channel=?",
+            (footer, keyboard, review_id, channel),
+        )
+
+    def set_snooze(self, camera: str, until: float) -> None:
+        self.execute(
+            "INSERT OR REPLACE INTO snoozes(camera, until) VALUES (?,?)", (camera, until)
+        )
+
+    def snoozed_until(self, camera: str) -> float | None:
+        row = self.query_one("SELECT until FROM snoozes WHERE camera=?", (camera,))
+        return float(row["until"]) if row else None
 
     def get_alert(self, review_id: str) -> sqlite3.Row | None:
         return self.query_one("SELECT * FROM alerts WHERE review_id=?", (review_id,))

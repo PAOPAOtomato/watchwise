@@ -95,7 +95,9 @@ class ModelEndpoint(BaseModel):
     context_window: int | None = None
     # Ollama only: how long to keep the model loaded between calls.
     keep_alive: str | None = None
-    # Anthropic only: thinking depth / spend. Unset means the model default.
+    # Reasoning depth / spend; unset means the model default. Anthropic: the
+    # effort setting. OpenAI-compatible: sent as reasoning_effort (dropped
+    # automatically if the server does not accept it).
     effort: Effort | None = None
     # Anthropic only: re-run a declined request on Anthropic's recommended
     # fallback model (server-side) instead of returning the refusal.
@@ -178,6 +180,45 @@ class DecisionSettings(BaseModel):
     always_surface_suspicious: bool = True
 
 
+NotifyOn = Literal["alerted", "escalated_human", "downgraded", "suppressed"]
+
+
+class TelegramSettings(BaseModel):
+    """Alert cards on your phone, with buttons that teach the memory.
+
+    Telegram is a cloud relay: card text (and the snapshot, unless
+    ``send_images`` is false) passes through Telegram's servers.
+    """
+
+    enabled: bool = False
+    # Name of the variable in .env holding the bot token -- never the token.
+    bot_token_env: str = "WATCHWISE_TELEGRAM_BOT_TOKEN"
+    # Allow-list: only these chats receive alerts or may press buttons.
+    chat_ids: list[int] = Field(default_factory=list)
+    send_images: bool = True
+    # Which dispositions produce a card.
+    notify_on: list[NotifyOn] = Field(default_factory=lambda: ["alerted", "escalated_human"])
+    snooze_minutes: int = 60
+    # Pause between messages to one chat (Telegram asks for <= 1/s per chat).
+    min_interval_s: float = 1.0
+    poll_timeout_s: int = 30
+    api_base_url: str = "https://api.telegram.org"
+
+
+class MQTTPublishSettings(BaseModel):
+    """Publish every verdict on MQTT (uses the broker in ``mqtt:``)."""
+
+    enabled: bool = False
+    topic_prefix: str = "watchwise"
+
+
+class NotifySettings(BaseModel):
+    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    mqtt: MQTTPublishSettings = Field(default_factory=MQTTPublishSettings)
+    # POST every verdict as JSON to this URL.
+    webhook_url: str | None = None
+
+
 class DutyRosterSettings(BaseModel):
     """Rule base: who/what is expected where and when."""
 
@@ -203,6 +244,7 @@ class WatchwiseConfig(BaseModel):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     decision: DecisionSettings = Field(default_factory=DecisionSettings)
+    notify: NotifySettings = Field(default_factory=NotifySettings)
     duty_roster: DutyRosterSettings = Field(default_factory=DutyRosterSettings)
     service: ServiceSettings = Field(default_factory=ServiceSettings)
 

@@ -32,6 +32,15 @@ class CorrectionResult:
     agreed: bool
     pattern_id: str | None
     patterns_scored: list[str]
+    correction_id: int | None = None
+
+
+@dataclass(slots=True)
+class UndoResult:
+    correction_id: int
+    review_id: str
+    human_verdict: str
+    effects_reversed: int
 
 
 class FeedbackLoop:
@@ -58,7 +67,7 @@ class FeedbackLoop:
         system_verdict = self._system_verdict(alert)
         agreed = system_verdict == verdict.value if system_verdict else False
 
-        self.store.execute(
+        cursor = self.store.execute(
             "INSERT INTO corrections(review_id, signature, system_verdict, system_conf, "
             "human_verdict, note, reviewer, created_at) VALUES (?,?,?,?,?,?,?,?)",
             (
@@ -72,6 +81,8 @@ class FeedbackLoop:
                 time.time(),
             ),
         )
+
+        correction_id = int(cursor.lastrowid)
 
         # 2. Reinforce / create the pattern this correction teaches.
         pattern_id: str | None = None
@@ -89,6 +100,8 @@ class FeedbackLoop:
                 camera=alert["camera"],
                 description=note or self._default_description(alert, benign=False),
             )
+        if pattern_id:
+            self._effect(correction_id, pattern_id, "reinforced")
 
         # 3. Score whatever already fired on this alert.
         #
@@ -105,7 +118,9 @@ class FeedbackLoop:
             expected = (
                 Verdict.BENIGN if row["kind"] == "false_alarm" else Verdict.SUSPICIOUS
             )
-            self.patterns.record_outcome(pid, agreed=verdict is expected)
+            agreed_with = verdict is expected
+            self.patterns.record_outcome(pid, agreed=agreed_with)
+            self._effect(correction_id, pid, "agreed" if agreed_with else "disagreed")
             scored.append(pid)
 
         return CorrectionResult(
@@ -115,6 +130,45 @@ class FeedbackLoop:
             agreed=agreed,
             pattern_id=pattern_id,
             patterns_scored=scored,
+            correction_id=correction_id,
+        )
+
+    def undo(self, correction_id: int) -> UndoResult:
+        """Take back one correction and everything it did to memory.
+
+        The pattern it created or reinforced loses that correction (and is
+        removed if none remain), and any pattern it scored has the score
+        reversed. Merged description text is kept; it carries no authority.
+        """
+        row = self.store.query_one("SELECT * FROM corrections WHERE id=?", (correction_id,))
+        if row is None:
+            raise KeyError(f"unknown correction {correction_id}")
+        effects = self.store.query(
+            "SELECT pattern_id, effect FROM correction_effects WHERE correction_id=?",
+            (correction_id,),
+        )
+        for effect in effects:
+            if effect["effect"] == "reinforced":
+                self.patterns.retract(effect["pattern_id"])
+            else:
+                self.patterns.unrecord_outcome(
+                    effect["pattern_id"], agreed=effect["effect"] == "agreed"
+                )
+        self.store.execute(
+            "DELETE FROM correction_effects WHERE correction_id=?", (correction_id,)
+        )
+        self.store.execute("DELETE FROM corrections WHERE id=?", (correction_id,))
+        return UndoResult(
+            correction_id=correction_id,
+            review_id=row["review_id"],
+            human_verdict=row["human_verdict"],
+            effects_reversed=len(effects),
+        )
+
+    def _effect(self, correction_id: int, pattern_id: str, effect: str) -> None:
+        self.store.execute(
+            "INSERT INTO correction_effects(correction_id, pattern_id, effect) VALUES (?,?,?)",
+            (correction_id, pattern_id, effect),
         )
 
     @staticmethod

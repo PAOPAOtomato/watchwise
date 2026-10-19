@@ -150,6 +150,31 @@ class PatternLibrary:
         self.store.execute("DELETE FROM patterns WHERE id=?", (pattern_id,))
         self.store.delete_vector(self.VECTOR_KIND, pattern_id)
 
+    def find(self, kind: str, signature: str) -> str | None:
+        row = self.store.query_one(
+            "SELECT id FROM patterns WHERE kind=? AND signature=?", (kind, signature)
+        )
+        return row["id"] if row else None
+
+    def retract(self, pattern_id: str) -> None:
+        """Take back one correction. A pattern left with none is removed."""
+        row = self.get(pattern_id)
+        if row is None:
+            return
+        if int(row["corrections"]) <= 1:
+            self.delete(pattern_id)
+        else:
+            self.store.execute(
+                "UPDATE patterns SET corrections=corrections-1 WHERE id=?", (pattern_id,)
+            )
+
+    def unrecord_outcome(self, pattern_id: str, *, agreed: bool) -> None:
+        """Reverse one ``record_outcome`` call."""
+        col = "agreements" if agreed else "disagreements"
+        self.store.execute(
+            f"UPDATE patterns SET {col}=MAX({col}-1, 0) WHERE id=?", (pattern_id,)
+        )
+
     # ---------------- reads ----------------
 
     def get(self, pattern_id: str) -> dict[str, Any] | None:

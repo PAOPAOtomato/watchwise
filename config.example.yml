@@ -90,6 +90,25 @@ gate:
   memory_suppress_similarity: 0.86
   memory_min_corrections: 3
 
+# Getting verdicts to people and other systems.
+notify:
+  # Phone alerts with buttons that teach the memory. `watchwise telegram link`
+  # fills in chat_ids. Telegram relays card text, and the snapshot unless
+  # send_images is false.
+  telegram:
+    enabled: false
+    bot_token_env: WATCHWISE_TELEGRAM_BOT_TOKEN # names the variable in .env
+    chat_ids: [] # only these chats receive alerts or may press buttons
+    send_images: true
+    notify_on: [alerted, escalated_human] # also possible: downgraded, suppressed
+    snooze_minutes: 60
+  # Publish every verdict on watchwise/verdicts and watchwise/<camera>/verdict.
+  mqtt:
+    enabled: false
+    topic_prefix: watchwise
+  # POST every verdict as JSON to this URL.
+  webhook_url: null
+
 memory:
   db_path: ./data/watchwise.db
   embedding_backend: hash

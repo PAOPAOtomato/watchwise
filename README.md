@@ -16,8 +16,9 @@ with tools before it answers, and it learns from every correction you make.
 Models run locally by default; cloud models are optional.
 
 > **Status: alpha.** The cascade, the investigation agent, the learning loop
-> and hardware-aware setup work and are tested. Phone alerts and chat are the
-> next milestones (see [Roadmap](#roadmap)). Watchwise has not yet been
+> and hardware-aware setup work and are tested; phone alerts with teaching
+> buttons are built and tested against a fake Telegram, and a real-phone check
+> is next. Chat follows (see [Roadmap](#roadmap)). Watchwise has not yet been
 > evaluated on a long-running real deployment; every number below is labeled
 > with how it was produced.
 
@@ -98,6 +99,33 @@ cd deploy && docker compose up -d
 `.amd.yml`, `.apple.yml`, ...), so `docker compose up -d` is the same command on
 every machine. Add your cameras to `deploy/frigate/config.yml`.
 
+### Phone alerts (Telegram)
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`,
+   and copy the token it gives you.
+2. Put it in `.env` as `WATCHWISE_TELEGRAM_BOT_TOKEN=<token>`.
+3. `watchwise telegram link`, then send `/start` to your bot. Only chats linked
+   this way receive alerts or can press buttons.
+4. `watchwise telegram test` sends a sample card; `watchwise serve` sends real ones.
+
+Each alert that needs you arrives as one card: a snapshot, what was seen where
+and when, one line of *why*, the confidence and which stage decided. While the
+agent investigates, the card says so, and it updates itself in place when the
+investigation finishes. The buttons feed straight back into memory:
+
+| Button | What it does |
+|---|---|
+| ✅ Expected | records a human correction; after a few on the same kind of alert, Watchwise holds those back by itself, and the card tells you when that happens |
+| 🚨 Real | confirms it was worth an alert |
+| 🔍 Look closer | runs a full investigation now (offered when none ran yet) |
+| 🔇 Snooze | mutes that camera's cards for an hour; its alerts are still processed and recorded |
+| ❓ Why | replies with the evidence: decision, reason, matched memory, the investigation's tools and conclusion |
+| ↩️ Undo | takes back your answer, including everything it taught the memory |
+
+Telegram is a cloud relay: card text, and the snapshot unless
+`notify.telegram.send_images` is `false`, passes through Telegram's servers.
+The bot uses long polling, so no port is opened and no public URL is needed.
+
 ---
 
 ## How it works
@@ -168,6 +196,10 @@ malformed arguments are sent back to the model as errors instead of being run.
 | `GET /tools`, `POST /tools/{name}` | list and directly invoke forensic tools |
 | `GET` / `POST /arming` | arming state |
 
+With `notify.mqtt.enabled`, every verdict is also published on MQTT
+(`watchwise/verdicts` and `watchwise/<camera>/verdict`), and `notify.webhook_url`
+POSTs each one as JSON, for Home Assistant or any other automation.
+
 The forensic tools are also exposed over **MCP**: in-process to the agent, and
 as a stdio server (`watchwise-mcp`, needs `pip install -e ".[mcp]"`) for Claude
 Desktop, Claude Code, Cursor or any MCP client.
@@ -180,7 +212,7 @@ Desktop, Claude Code, Cursor or any MCP client.
 |---|---|---|
 | 1 | Cascade, investigation agent, MCP tools, learning loop | done |
 | 2 | Run anywhere: model layer, open-model investigator, hardware profiles, `doctor` / `init` / `check` | done |
-| 3 | Smart alerts on your phone (Telegram): snapshot, a one-line "why", one-tap Expected / Real / Snooze that teaches the memory, daily digest with spot-checks | next |
+| 3 | Smart alerts on your phone (Telegram): snapshot, a one-line "why", one-tap Expected / Real / Snooze that teaches the memory, Undo | done (tested against a fake Telegram); daily digest with spot-checks next |
 | 4 | Ask Watchwise: chat about your cameras ("why didn't you alert me?", "the cleaner comes Thursdays"), with every change confirmed first | planned |
 | 5 | Setup assistant, agent-native setup via SKILL.md, measured hardware benchmarks | planned |
 | 6 | Interactive web demo | planned |
@@ -203,13 +235,14 @@ pip install -e ".[dev,anthropic,mcp,agent]"
 pytest -q
 ```
 
-The suite runs against a fake Frigate and a fake model server (both real ASGI
-apps), plus recorded hardware-detection output from machines it never runs on,
-so it needs no GPU, cameras or API keys. Layout:
+The suite runs against a fake Frigate, a fake model server and a fake Telegram
+Bot API (all real ASGI apps), plus recorded hardware-detection output from
+machines it never runs on, so it needs no GPU, cameras, bot or API keys. Layout:
 
 ```
-watchwise/     the package: tier2/ (gate, VLM), tier3/ (agent), tools/, memory/,
-              llm/ (model layer), hw/ (detection + profiles), setup/, cli.py
+watchwise/    the package: tier2/ (gate, VLM), tier3/ (agent), tools/, memory/,
+              llm/ (model layer), hw/ (detection + profiles), setup/,
+              notify/ (alert cards, Telegram), cli.py
 tests/        one file per layer
 deploy/       docker compose base + hardware overlays, Frigate template
 docs/         hardware and model guide

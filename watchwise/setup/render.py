@@ -7,6 +7,7 @@ and the second run is a no-op.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import yaml
@@ -39,6 +40,10 @@ SECTION_COMMENTS = {
     "agent": "# Tier-3 investigation budget.",
     "gate": "# The free, model-free filter in front of everything.",
     "decision": "# The risk posture: below these confidences, a human decides.",
+    "notify": (
+        "# Phone alerts (Telegram). Connect a chat with `watchwise telegram link`.\n"
+        "# Telegram relays card text, and the snapshot unless send_images is false."
+    ),
     "memory": None,
     "duty_roster": None,
     "service": None,
@@ -75,6 +80,7 @@ def build_config_dict(
             "human_fallback_confidence": 0.6,
             "auto_downgrade_confidence": 0.85,
         },
+        "notify": {"telegram": {"enabled": False, "chat_ids": [], "send_images": True}},
         "memory": {"db_path": "./data/watchwise.db"},
         "duty_roster": {"path": "./config/duty_roster.yml", "timezone": "UTC"},
         "service": {"host": "127.0.0.1", "port": 5055},
@@ -94,6 +100,26 @@ def render_config(profile: Profile, config: dict[str, Any]) -> str:
         block = yaml.safe_dump({key: value}, sort_keys=False, default_flow_style=False, width=100)
         parts.append(f"{comment}\n{block}" if comment else block)
     return "\n".join(parts)
+
+
+def replace_top_level_block(text: str, key: str, value: Any) -> str:
+    """Replace one top-level YAML mapping (or append it), leaving every other
+    line of the file -- including comments -- exactly as it was."""
+    block = yaml.safe_dump({key: value}, sort_keys=False, default_flow_style=False, width=100)
+    lines = text.splitlines(keepends=True)
+    start = next(
+        (i for i, line in enumerate(lines) if re.match(rf"^{re.escape(key)}:\s*(#.*)?$", line)),
+        None,
+    )
+    if start is None:
+        prefix = text if text.endswith("\n") or not text else text + "\n"
+        return prefix + ("\n" if prefix else "") + block
+    end = start + 1
+    while end < len(lines) and (lines[end].startswith((" ", "\t")) or not lines[end].strip()):
+        end += 1
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1  # keep the blank lines that separate the next section
+    return "".join(lines[:start]) + block + "".join(lines[end:])
 
 
 def _clean(spec: dict[str, Any]) -> dict[str, Any]:

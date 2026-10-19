@@ -272,6 +272,36 @@ def test_corrections_score_the_patterns_that_caused_the_decision(store, patterns
     assert row["disagreements"] == 1 and row["agreements"] == 0
 
 
+def test_undo_removes_a_pattern_that_one_correction_created(store, patterns):
+    loop = FeedbackLoop(store, patterns)
+    _seed_alert(store)
+    result = loop.submit("rev-1", "benign", note="headlights")
+    undone = loop.undo(result.correction_id)
+    assert (undone.review_id, undone.human_verdict, undone.effects_reversed) == ("rev-1", "benign", 1)
+    assert patterns.get(result.pattern_id) is None
+    assert store.query("SELECT COUNT(*) AS n FROM corrections")[0]["n"] == 0
+    assert store.query("SELECT COUNT(*) AS n FROM correction_effects")[0]["n"] == 0
+
+
+def test_undo_takes_back_exactly_one_reinforcement_and_its_scores(store, patterns):
+    loop = FeedbackLoop(store, patterns)
+    _seed_alert(store, review_id="rev-1")
+    first = loop.submit("rev-1", "benign", note="headlights")
+    _seed_alert(store, review_id="rev-2")
+    second = loop.submit("rev-2", "benign", influenced_pattern_ids=[first.pattern_id])
+    row = patterns.get(first.pattern_id)
+    assert (row["corrections"], row["agreements"]) == (2, 1)
+
+    loop.undo(second.correction_id)
+    row = patterns.get(first.pattern_id)
+    assert (row["corrections"], row["agreements"]) == (1, 0), "the first correction still stands"
+
+
+def test_undo_of_an_unknown_correction_is_an_error(store, patterns):
+    with pytest.raises(KeyError):
+        FeedbackLoop(store, patterns).undo(12345)
+
+
 def test_repeated_agreement_raises_trust_and_enables_suppression(store, patterns):
     loop = FeedbackLoop(store, patterns)
     pid = None
