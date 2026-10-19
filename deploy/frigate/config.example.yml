@@ -1,0 +1,53 @@
+# Minimal Frigate config for use with Sentinel.
+# `sentinel init --deploy` copies this to deploy/frigate/config.yml once;
+# edit that copy. Full reference: https://docs.frigate.video/configuration/reference
+
+mqtt:
+  enabled: true
+  host: mqtt
+  topic_prefix: frigate # Sentinel's mqtt.topic_prefix must match
+
+# Object detection. OpenVINO on CPU works on any x86-64 machine (Intel or AMD).
+# Intel iGPU: device GPU. Intel Core Ultra: device NPU (with the intel overlay).
+# NVIDIA, AMD, Apple Silicon: see https://docs.frigate.video/configuration/object_detectors
+detectors:
+  ov:
+    type: openvino
+    device: CPU
+
+model:
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /openvino-model/ssdlite_mobilenet_v2.xml
+  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+
+record:
+  enabled: true
+  motion:
+    days: 3
+
+# Optional: Frigate's own GenAI review summaries, using the same Ollama server.
+# Sentinel can reuse these as screening evidence instead of a second VLM call.
+# genai:
+#   local:
+#     provider: ollama
+#     base_url: http://ollama:11434
+#     model: qwen3-vl:4b
+#     roles: [descriptions]
+# review:
+#   genai:
+#     enabled: true
+
+cameras:
+  front_door: # one block per camera; rename freely
+    enabled: false # set to true once the stream URL below is real
+    ffmpeg:
+      inputs:
+        - path: rtsp://user:password@192.168.1.10:554/stream1
+          roles: [detect, record]
+    detect:
+      width: 1280
+      height: 720
+      fps: 5

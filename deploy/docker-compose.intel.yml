@@ -1,0 +1,8 @@
+# Overlay (optional): pass an Intel iGPU/NPU to Frigate on Linux, for the
+# OpenVINO detector (device: GPU or NPU) and hardware video decoding.
+# Add it to COMPOSE_FILE in deploy/.env. Not available under Docker Desktop.
+
+services:
+  frigate:
+    devices:
+      - /dev/dri:/dev/dri

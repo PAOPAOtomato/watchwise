@@ -1,0 +1,401 @@
+"""Layer 5: the investigation loop, the decision policy, and the queue.
+
+What is actually being asserted here is the intended behaviour of
+the agent: that it plans its own path rather than running a fixed script,
+that it reaches a conclusion in a small number of rounds, that it gathers
+more evidence instead of guessing when confidence is low, and that it never
+blocks the real-time alert path.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from sentinel.config import AgentSettings, DecisionSettings, MemorySettings
+from sentinel.decision import DecisionPolicy
+from sentinel.memory.short_term import ShortTermMemory
+from sentinel.tier2.gate import GateResult
+from sentinel.tier3.backends.base import (
+    AgentBackend,
+    Conclusion,
+    ToolRunner,
+    parse_conclusion,
+)
+from sentinel.tier3.backends.scripted import ScriptedBackend
+from sentinel.tier3.investigator import InvestigationQueue, Investigator
+from sentinel.tools.base import ToolContext
+from sentinel.tools.duty_roster import DutyRoster
+from sentinel.types import (
+    Disposition,
+    Investigation,
+    ScreenResult,
+    Severity,
+    Stage,
+    Verdict,
+)
+from tests.conftest import NIGHT_TS, make_alert
+
+
+@pytest.fixture
+def tool_ctx(nvr_client, store, patterns, tmp_path):
+    from sentinel.tier2.vlm.stub import StubVLM
+
+    return ToolContext(
+        nvr=nvr_client,
+        store=store,
+        patterns=patterns,
+        roster=None,
+        config_cache={"vlm": StubVLM(), "arming_path": str(tmp_path / "arming.json")},
+    )
+
+
+@pytest.fixture
+def investigator(tool_ctx, store):
+    return Investigator(
+        ScriptedBackend(max_iterations=6, stop_confidence=0.85),
+        tool_ctx,
+        store,
+        AgentSettings(max_concurrency=1, timeout_s=30.0),
+        MemorySettings(),
+    )
+
+
+UNCERTAIN = ScreenResult(
+    verdict=Verdict.UNCERTAIN, confidence=0.4, reason="could not tell",
+    backend="stub", model="stub-vlm",
+)
+
+
+# ---------------- the ReAct loop ----------------
+
+
+async def test_investigation_runs_tools_and_reaches_a_conclusion(investigator):
+    inv = await investigator.investigate(make_alert(labels=["person"]), UNCERTAIN)
+    assert inv.status == "done"
+    assert inv.iterations >= 1
+    assert inv.tool_calls, "an investigation with no tool calls is not an investigation"
+    assert inv.conclusion
+    assert 0.0 <= inv.confidence <= 1.0
+
+
+async def test_investigation_converges_in_a_small_number_of_rounds(investigator):
+    """The 2-3 iteration target, as a bound rather than an exact count."""
+    inv = await investigator.investigate(make_alert(labels=["person"]), UNCERTAIN)
+    assert 1 <= inv.iterations <= 6
+
+
+async def test_the_plan_adapts_to_the_alert_rather_than_being_fixed(investigator):
+    """A person alert consults the roster; a vehicle alert does not."""
+    person = await investigator.investigate(
+        make_alert(review_id="p", labels=["person"]), UNCERTAIN
+    )
+    vehicle = await investigator.investigate(
+        make_alert(review_id="v", labels=["car"]), UNCERTAIN
+    )
+    person_tools = {c.name for c in person.tool_calls}
+    vehicle_tools = {c.name for c in vehicle.tool_calls}
+    assert "check_duty_roster" in person_tools
+    assert "check_duty_roster" not in vehicle_tools
+
+
+async def test_prior_human_judgement_shifts_the_conclusion(investigator, patterns):
+    """Long-term memory feeding tier 3, not just the gate."""
+    alert = make_alert(camera="cam_drive", labels=["car"], zones=["driveway"])
+    pid = patterns.upsert(
+        kind="false_alarm",
+        signature=alert.signature(),
+        description="headlights sweeping the gate",
+    )
+    for _ in range(5):
+        patterns.upsert(kind="false_alarm", signature=alert.signature(),
+                        description="headlights")
+        patterns.record_outcome(pid, agreed=True)
+
+    inv = await investigator.investigate(alert, UNCERTAIN)
+    assert inv.verdict is Verdict.BENIGN
+    assert "false-alarm pattern" in inv.conclusion
+
+
+async def test_multi_camera_activity_pushes_toward_suspicious(investigator, nvr_state):
+    import time
+
+    t0 = time.time()
+    for cam in ("cam_yard", "cam_door"):
+        nvr_state.add_event(event_id=f"e-{cam}", camera=cam, start_time=t0 + 20)
+    alert = make_alert(camera="cam_drive", labels=["person"], start_time=t0)
+    inv = await investigator.investigate(alert, UNCERTAIN)
+    assert inv.verdict is Verdict.SUSPICIOUS
+    assert any("cameras recorded activity" in t for t in [inv.conclusion])
+
+
+async def test_a_disarmed_system_pushes_toward_benign(investigator, tool_ctx, tmp_path):
+    from sentinel.tools.device_status import ArmingState
+
+    ArmingState(tool_ctx.config_cache["arming_path"]).set("disarmed")
+    inv = await investigator.investigate(make_alert(labels=["person"]), UNCERTAIN)
+    assert "disarmed" in inv.conclusion
+
+
+async def test_roster_match_explains_night_activity(investigator, tool_ctx, tmp_path):
+    roster = tmp_path / "roster.yml"
+    roster.write_text(
+        'timezone: UTC\nentries:\n  - name: night_patrol\n    days: [mon, tue, wed, thu, '
+        'fri, sat, sun]\n    start: "00:00"\n    end: "23:59"\n    cameras: [cam_drive]\n'
+        '    labels: [person]\n    expect: rostered guard\n    confidence: 0.9\n',
+        encoding="utf-8",
+    )
+    tool_ctx.roster = DutyRoster(roster, "UTC")
+    inv = await investigator.investigate(
+        make_alert(camera="cam_drive", labels=["person"], start_time=NIGHT_TS), UNCERTAIN
+    )
+    assert "night_patrol" in inv.conclusion
+
+
+async def test_low_confidence_triggers_another_evidence_round(tool_ctx, store):
+    """The 'gather more rather than guess' behaviour."""
+    backend = ScriptedBackend(max_iterations=8, stop_confidence=0.99)
+    investigator = Investigator(
+        backend, tool_ctx, store, AgentSettings(timeout_s=30.0), MemorySettings()
+    )
+    inv = await investigator.investigate(make_alert(labels=["person"]), UNCERTAIN)
+    names = [c.name for c in inv.tool_calls]
+    assert "describe_historical_frames" in names, (
+        "with an unreachable stop threshold the agent must escalate to gathering "
+        "more visual evidence rather than concluding"
+    )
+
+
+async def test_tool_budget_is_enforced(tool_ctx, store):
+    inv = Investigation(id="i", review_id="r", camera="c")
+    memory = ShortTermMemory()
+    runner = ToolRunner(tool_ctx, memory, inv, max_calls=2)
+    await runner.call("get_device_status", {"camera": "cam_drive"})
+    await runner.call("cross_reference_cameras", {"start_time": 1_700_000_000.0})
+    assert runner.budget_exhausted
+    blocked = await runner.call("get_device_status", {"camera": "cam_yard"})
+    assert blocked["ok"] is False and "budget" in blocked["error"]
+
+
+async def test_identical_calls_are_cached_not_repeated(tool_ctx):
+    inv = Investigation(id="i", review_id="r", camera="c")
+    runner = ToolRunner(tool_ctx, ShortTermMemory(), inv, max_calls=10)
+    await runner.call("get_device_status", {"camera": "cam_drive"})
+    again = await runner.call("get_device_status", {"camera": "cam_drive"})
+    assert "cached result" in again["note"]
+    assert len(inv.tool_calls) == 1, "a repeated call must not cost a second round trip"
+
+
+async def test_unknown_tool_is_reported_not_raised(tool_ctx):
+    runner = ToolRunner(tool_ctx, ShortTermMemory(), Investigation(id="i", review_id="r",
+                                                                   camera="c"))
+    result = await runner.call("teleport", {})
+    assert result["ok"] is False and "unknown tool" in result["error"]
+
+
+# ---------------- failure handling ----------------
+
+
+async def test_a_timeout_becomes_uncertain_and_escalates(tool_ctx, store):
+    class Slow(AgentBackend):
+        name = "slow"
+
+        async def run(self, ctx, screen, memory, runner):
+            await asyncio.sleep(5)
+            return Conclusion(Verdict.BENIGN, 1.0, "never gets here")
+
+    investigator = Investigator(
+        Slow(), tool_ctx, store, AgentSettings(timeout_s=0.05), MemorySettings()
+    )
+    inv = await investigator.investigate(make_alert(), UNCERTAIN)
+    assert inv.status == "failed"
+    assert inv.verdict is Verdict.UNCERTAIN
+    assert inv.confidence == 0.0
+    assert "timed out" in inv.error
+
+
+async def test_a_crashing_backend_does_not_lose_the_alert(tool_ctx, store):
+    class Broken(AgentBackend):
+        name = "broken"
+
+        async def run(self, ctx, screen, memory, runner):
+            raise RuntimeError("model exploded")
+
+    investigator = Investigator(
+        Broken(), tool_ctx, store, AgentSettings(timeout_s=5.0), MemorySettings()
+    )
+    inv = await investigator.investigate(make_alert(), UNCERTAIN)
+    assert inv.status == "failed"
+    assert inv.verdict is Verdict.UNCERTAIN
+    assert "model exploded" in inv.error
+
+
+async def test_the_trace_is_persisted_for_audit(investigator, store):
+    inv = await investigator.investigate(make_alert(labels=["person"]), UNCERTAIN)
+    import json
+
+    row = store.get_investigation(inv.id)
+    assert row is not None
+    trace = json.loads(row["trace_json"])
+    assert trace["tool_calls"], "a conclusion with no recorded evidence is not auditable"
+    assert trace["thoughts"]
+
+
+# ---------------- conclusion parsing ----------------
+
+
+def test_parse_conclusion_accepts_well_formed_json():
+    c = parse_conclusion(
+        '{"verdict":"suspicious","confidence":0.9,"conclusion":"x",'
+        '"recommended_action":"look","evidence":["a","b"]}'
+    )
+    assert c.verdict is Verdict.SUSPICIOUS and c.confidence == 0.9
+    assert c.evidence == ["a", "b"]
+
+
+def test_parse_conclusion_fails_safe():
+    for raw in ("", "nope", "{broken"):
+        c = parse_conclusion(raw)
+        assert c.verdict is Verdict.UNCERTAIN and c.confidence == 0.0
+
+
+def test_parse_conclusion_handles_a_fenced_block_with_prose():
+    c = parse_conclusion(
+        'Here is my finding:\n```json\n{"verdict":"benign","confidence":0.88,'
+        '"conclusion":"routine"}\n```'
+    )
+    assert c.verdict is Verdict.BENIGN and c.confidence == 0.88
+
+
+# ---------------- the queue ----------------
+
+
+async def test_queue_processes_items_and_reports_stats(investigator):
+    queue = InvestigationQueue(investigator, AgentSettings(max_concurrency=2, timeout_s=30))
+    done: list[str] = []
+
+    async def on_done(ctx, inv):
+        done.append(inv.review_id)
+
+    queue.on_done = on_done
+    await queue.start()
+    for i in range(4):
+        assert queue.submit(make_alert(review_id=f"r{i}"), UNCERTAIN)
+    await queue.drain(timeout=30)
+    await queue.stop()
+    assert sorted(done) == ["r0", "r1", "r2", "r3"]
+    assert queue.stats["completed"] == 4
+
+
+async def test_queue_never_blocks_the_caller_when_full(investigator):
+    """Backpressure must not propagate up into the alert path."""
+    queue = InvestigationQueue(investigator, AgentSettings(queue_size=2, max_concurrency=1))
+    # Deliberately not started: nothing drains it.
+    for i in range(10):
+        accepted = queue.submit(make_alert(review_id=f"r{i}"), UNCERTAIN)
+        assert accepted is True, "submit must always accept, dropping the oldest instead"
+    assert queue.queue.qsize() == 2
+    assert queue.stats["dropped"] == 8
+
+
+async def test_a_failing_investigation_does_not_kill_the_worker(tool_ctx, store):
+    class Flaky(AgentBackend):
+        name = "flaky"
+        calls = 0
+
+        async def run(self, ctx, screen, memory, runner):
+            Flaky.calls += 1
+            if Flaky.calls == 1:
+                raise RuntimeError("first one explodes")
+            return Conclusion(Verdict.BENIGN, 0.9, "fine")
+
+    investigator = Investigator(
+        Flaky(), tool_ctx, store, AgentSettings(timeout_s=5.0), MemorySettings()
+    )
+    queue = InvestigationQueue(investigator, AgentSettings(max_concurrency=1))
+    await queue.start()
+    queue.submit(make_alert(review_id="bad"), UNCERTAIN)
+    queue.submit(make_alert(review_id="good"), UNCERTAIN)
+    await queue.drain(timeout=20)
+    await queue.stop()
+    assert queue.stats["failed"] == 1
+    assert queue.stats["completed"] == 1
+
+
+# ---------------- the decision policy ----------------
+
+
+@pytest.fixture
+def policy():
+    return DecisionPolicy(DecisionSettings())
+
+
+def test_gate_suspicious_alerts_immediately(policy):
+    gate = GateResult(passed_through=False, verdict=Verdict.SUSPICIOUS, confidence=1.0,
+                      reason="fire label", rule="always_alert_label")
+    d = policy.from_gate(make_alert(), gate)
+    assert d.disposition is Disposition.ALERTED
+    assert d.stage is Stage.GATED
+
+
+def test_gate_memory_match_suppresses_but_a_weak_rule_only_downgrades(policy):
+    strong = GateResult(passed_through=False, verdict=Verdict.BENIGN, confidence=0.9,
+                        reason="known pattern", rule="memory_pattern")
+    assert policy.from_gate(make_alert(), strong).disposition is Disposition.SUPPRESSED
+
+    weak = GateResult(passed_through=False, verdict=Verdict.BENIGN, confidence=0.7,
+                      reason="duplicate", rule="dedupe_window")
+    weak_decision = policy.from_gate(make_alert(), weak)
+    assert weak_decision.disposition is Disposition.DOWNGRADED
+    assert weak_decision.severity is Severity.DETECTION
+
+
+def test_confident_benign_screening_downgrades_without_investigating(policy):
+    screen = ScreenResult(verdict=Verdict.BENIGN, confidence=0.92, reason="a cat")
+    decision, needs = policy.from_screening(make_alert(), screen)
+    assert decision.disposition is Disposition.DOWNGRADED
+    assert needs is False
+
+
+def test_confident_suspicious_screening_alerts_and_still_investigates(policy):
+    screen = ScreenResult(verdict=Verdict.SUSPICIOUS, confidence=0.9, reason="prowler")
+    decision, needs = policy.from_screening(make_alert(), screen)
+    assert decision.disposition is Disposition.ALERTED
+    assert needs is True, "a human wants the context, not just the alert"
+
+
+def test_uncertain_screening_alerts_now_and_escalates(policy):
+    decision, needs = policy.from_screening(make_alert(), UNCERTAIN)
+    assert decision.disposition is Disposition.ALERTED
+    assert needs is True
+    assert "not confident" in decision.rationale
+
+
+@pytest.mark.parametrize(
+    "verdict,confidence,expected",
+    [
+        (Verdict.UNCERTAIN, 0.9, Disposition.ESCALATED_HUMAN),
+        (Verdict.BENIGN, 0.4, Disposition.ESCALATED_HUMAN),
+        (Verdict.SUSPICIOUS, 0.4, Disposition.ESCALATED_HUMAN),
+        (Verdict.SUSPICIOUS, 0.9, Disposition.ALERTED),
+        (Verdict.BENIGN, 0.7, Disposition.DOWNGRADED),
+        (Verdict.BENIGN, 0.95, Disposition.SUPPRESSED),
+    ],
+)
+def test_investigation_dispositions(policy, verdict, confidence, expected):
+    inv = Investigation(id="i", review_id="r", camera="c", verdict=verdict,
+                        confidence=confidence, conclusion="because")
+    decision = policy.from_investigation(make_alert(), UNCERTAIN, inv)
+    assert decision.disposition is expected
+
+
+def test_low_confidence_never_auto_resolves(policy):
+    """The over-autonomy guard, stated as a property over the whole range."""
+    for conf in (0.0, 0.1, 0.3, 0.59):
+        for verdict in (Verdict.BENIGN, Verdict.SUSPICIOUS, Verdict.UNCERTAIN):
+            inv = Investigation(id="i", review_id="r", camera="c", verdict=verdict,
+                                confidence=conf, conclusion="thin")
+            d = policy.from_investigation(make_alert(), None, inv)
+            assert d.disposition is Disposition.ESCALATED_HUMAN
+            assert d.severity is Severity.ALERT

@@ -1,0 +1,14 @@
+# Overlay: AMD GPUs via ROCm (Linux).
+
+services:
+  frigate:
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable-rocm}
+    devices:
+      - /dev/kfd
+      - /dev/dri
+
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:rocm}
+    devices:
+      - /dev/kfd
+      - /dev/dri

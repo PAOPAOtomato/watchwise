@@ -1,0 +1,35 @@
+# The duty-roster rule base: what is EXPECTED, so the agent can tell a
+# rostered guard from an intruder. Edited live; reloaded on change.
+timezone: UTC
+
+entries:
+  - name: night_security_patrol
+    kind: shift
+    days: [mon, tue, wed, thu, fri, sat, sun]
+    start: "22:00"
+    end: "06:00"          # wraps past midnight
+    cameras: [cam_yard, cam_drive]
+    zones: [perimeter]
+    labels: [person]
+    expect: "rostered security patrol walking the perimeter"
+    confidence: 0.9
+
+  - name: bin_collection
+    kind: scheduled_activity
+    days: [tue]
+    start: "06:00"
+    end: "07:30"
+    cameras: [cam_drive]
+    labels: [person, truck, car]
+    expect: "refuse collection at the kerb"
+    confidence: 0.85
+
+  - name: cleaner
+    kind: scheduled_activity
+    days: [thu]
+    start: "13:00"
+    end: "16:00"
+    cameras: [cam_door]
+    labels: [person]
+    expect: "contract cleaner entering via the front door"
+    confidence: 0.8

@@ -1,0 +1,116 @@
+# Sentinel configuration reference.
+#
+# You normally don't write this by hand: `sentinel init` generates
+# config/sentinel.yml from a hardware profile (see `sentinel profiles`).
+# This file documents every section. ${VAR:-default} values are read from the
+# environment / .env; SENTINEL_* variables override individual settings
+# (see sentinel/config.py).
+
+# Tier 1: the NVR. Sentinel only reads Frigate's HTTP API and MQTT.
+nvr:
+  # Port 5000 is Frigate's internal API. From the compose network:
+  # http://frigate:5000. From the host: http://localhost:5000.
+  base_url: ${FRIGATE_URL:-http://localhost:5000}
+  timeout_s: 10.0
+
+mqtt:
+  enabled: true
+  host: ${MQTT_HOST:-localhost}
+  port: 1883
+  topic_prefix: frigate # must match Frigate's mqtt.topic_prefix
+  client_id: sentinel
+
+# Model endpoints, by name. provider is one of:
+#   stub           deterministic stand-in: no model, no cost (tests, demos)
+#   ollama         a local Ollama server (native API, sets the context length)
+#   openai_compat  any OpenAI-compatible server: OpenAI, Groq, Gemini,
+#                  OpenRouter, LM Studio, llama.cpp, vLLM, OpenVINO MS
+#   anthropic      Claude via the Anthropic SDK (pip install "sentinel[anthropic]")
+# api_key_env names a variable in .env; keys never go in this file.
+models:
+  local:
+    provider: ollama
+    base_url: ${OLLAMA_URL:-http://localhost:11434}
+    model: qwen3-vl:4b
+    context_window: 8192 # Ollama num_ctx; too small silently truncates prompts
+    max_tokens: 1024
+    timeout_s: 300
+    keep_alive: 30m
+  # cloud:
+  #   provider: anthropic
+  #   model: claude-opus-5-5
+  #   api_key_env: ANTHROPIC_API_KEY
+  #   effort: medium          # low | medium | high | xhigh | max
+  #   refusal_fallback: true  # server-side retry of declined requests
+  # cloud:
+  #   provider: openai_compat
+  #   base_url: https://api.openai.com/v1
+  #   model: gpt-5-mini
+  #   api_key_env: OPENAI_API_KEY
+
+# Which endpoint does which job.
+roles:
+  screener: local # tier 2: looks at frames, says benign / suspicious / uncertain
+  investigator: local # tier 3: tool-calling agent for the hard cases
+  chat: local # conversation (Ask Sentinel)
+  # chat_escalation: cloud
+
+# Tier-2 tuning. The model comes from roles.screener.
+vlm:
+  frames: 2 # frames sampled per alert
+  max_image_edge: 640
+  jpeg_quality: 70
+  timeout_s: 60
+  max_tokens: 512
+  max_concurrency: 2 # so N cameras cannot stampede one GPU
+
+# Tier-3 investigation.
+agent:
+  # auto: the tool-calling loop on roles.investigator when it is a real model,
+  # otherwise the deterministic scripted loop. Also: scripted, tools, claude_sdk.
+  backend: auto
+  max_iterations: 6
+  stop_confidence: 0.85
+  timeout_s: 180
+  max_concurrency: 2
+  queue_size: 128
+  # claude_sdk backend only:
+  model: claude-opus-5-5
+  effort: medium
+  max_budget_usd: 0.50
+
+# The free, model-free filter in front of everything. Most of the cost saving
+# comes from here.
+gate:
+  enabled: true
+  dedupe_window_s: 60
+  min_object_score: 0.0
+  always_alert_labels: [] # e.g. [fire, smoke]
+  never_screen_labels: [] # e.g. [cat, dog]
+  memory_suppress_similarity: 0.86
+  memory_min_corrections: 3
+
+memory:
+  db_path: ./data/sentinel.db
+  embedding_backend: hash
+  embedding_dim: 256
+  short_term_max_items: 40
+  short_term_max_chars: 12000
+  pattern_half_life_days: 30
+
+# The risk posture of the whole system, in five numbers.
+decision:
+  screen_benign_confidence: 0.80
+  screen_suspicious_confidence: 0.80
+  human_fallback_confidence: 0.60
+  auto_downgrade_confidence: 0.85
+  always_surface_suspicious: true
+
+duty_roster:
+  path: ./config/duty_roster.yml
+  timezone: UTC
+
+service:
+  host: 127.0.0.1
+  port: 5055
+  log_level: INFO

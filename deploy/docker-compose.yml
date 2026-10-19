@@ -1,0 +1,71 @@
+# Frigate + MQTT + Sentinel.
+#
+# Hardware-specific pieces live in the overlay files next to this one.
+# `sentinel init --deploy` writes deploy/.env, which tells docker compose which
+# overlays to use on this machine, so from this folder you only ever run:
+#
+#     docker compose up -d
+#
+# Ports bound to 127.0.0.1 are reachable from this machine only.
+
+services:
+  mqtt:
+    image: ${MOSQUITTO_IMAGE:-eclipse-mosquitto:2}
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    ports:
+      - "127.0.0.1:1883:1883"
+
+  frigate:
+    # Pin a release tag (e.g. ...:0.16.x) for reproducible installs.
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable}
+    restart: unless-stopped
+    shm_size: "512mb"
+    depends_on:
+      - mqtt
+    volumes:
+      - ./frigate:/config
+      - ${FRIGATE_MEDIA:-./media}:/media/frigate
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 1000000000
+    ports:
+      - "8971:8971"            # Frigate web UI (authenticated)
+      - "127.0.0.1:5000:5000"  # internal API: Sentinel on the host uses it; never expose it
+      - "8554:8554"            # RTSP restream
+      - "8555:8555/tcp"        # WebRTC
+      - "8555:8555/udp"
+
+  sentinel:
+    build:
+      context: ..
+    restart: unless-stopped
+    depends_on:
+      - mqtt
+      - frigate
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      FRIGATE_URL: http://frigate:5000
+      MQTT_HOST: mqtt
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      SENTINEL_CONFIG: /app/config/sentinel.yml
+      SENTINEL_DB_PATH: /data/sentinel.db
+    volumes:
+      - ../config:/app/config:ro
+      - sentinel-data:/data
+    ports:
+      - "127.0.0.1:5055:5055"
+    command: ["sentinel", "serve", "--host", "0.0.0.0", "--port", "5055"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5055/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  sentinel-data:

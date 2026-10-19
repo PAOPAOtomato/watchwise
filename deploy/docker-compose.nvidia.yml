@@ -1,0 +1,22 @@
+# Overlay: NVIDIA GPUs. Requires the NVIDIA Container Toolkit on Linux, or
+# Docker Desktop with the WSL2 backend on Windows.
+
+services:
+  frigate:
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:stable-tensorrt}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

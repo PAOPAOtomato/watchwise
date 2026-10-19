@@ -1,0 +1,56 @@
+[project]
+name = "sentinel"
+version = "0.2.0"
+description = "An AI guard for your NVR: alerts that explain themselves, an agent you can question, and a learning loop - on your own hardware."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Sentinel contributors" }]
+keywords = ["frigate", "nvr", "surveillance", "vlm", "llm", "agent", "mcp", "ollama"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Security",
+]
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "numpy>=1.26",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "paho-mqtt>=2.0",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Claude via the Anthropic SDK (the `anthropic` model provider).
+anthropic = ["anthropic>=1.0"]
+# The stdio MCP server (`sentinel-mcp`), for Claude Desktop, Claude Code, Cursor...
+mcp = ["mcp>=2.0"]
+# The Claude Agent SDK investigation backend (agent.backend: claude_sdk).
+agent = ["claude-agent-sdk>=0.2", "mcp>=2.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+all = ["sentinel[anthropic,mcp,agent]"]
+
+[project.scripts]
+sentinel = "sentinel.cli:main"
+sentinel-mcp = "sentinel.mcp.stdio_server:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["sentinel*"]
+
+[tool.setuptools.package-data]
+"sentinel.hw" = ["*.yml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
