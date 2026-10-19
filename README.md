@@ -8,6 +8,11 @@ correct it, running on the hardware you already own.
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)
 
+**[Try the interactive demo →](https://watchwise-six-ebon.vercel.app/#experience)**
+
+Explore illustrated camera events, inspect the evidence, and see how your
+corrections change the next decision. No installation, cameras, or API keys needed.
+
 Cameras are cheap; attention isn't. Motion alerts cry wolf (headlights, cats,
 the courier) until you mute them, and then the one that mattered is buried.
 Watchwise sits on top of [Frigate](https://frigate.video), the open-source NVR,
@@ -215,7 +220,7 @@ Desktop, Claude Code, Cursor or any MCP client.
 | 3 | Smart alerts on your phone (Telegram): snapshot, a one-line "why", one-tap Expected / Real / Snooze that teaches the memory, Undo | done (tested against a fake Telegram); daily digest with spot-checks next |
 | 4 | Ask Watchwise: chat about your cameras ("why didn't you alert me?", "the cleaner comes Thursdays"), with every change confirmed first | planned |
 | 5 | Setup assistant, agent-native setup via SKILL.md, measured hardware benchmarks | planned |
-| 6 | Interactive web demo | planned |
+| 6 | [Interactive web demo](https://watchwise-six-ebon.vercel.app/#experience) | live |
 
 ## Known limitations
 
