@@ -51,5 +51,6 @@ def build_vlm(settings: VLMSettings) -> VLMBackend:
             timeout_s=settings.timeout_s,
             temperature=settings.temperature,
             max_tokens=settings.max_tokens,
+            effort=settings.effort,
         )
     raise ValueError(f"unknown vlm backend: {settings.backend}")

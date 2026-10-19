@@ -38,6 +38,7 @@ def build_chat_model(endpoint: ModelEndpoint) -> ChatModel:
             timeout_s=endpoint.timeout_s,
             temperature=endpoint.temperature,
             max_tokens=endpoint.max_tokens,
+            effort=endpoint.effort,
         )
     if provider == "anthropic":
         from watchwise.llm.anthropic import AnthropicChat

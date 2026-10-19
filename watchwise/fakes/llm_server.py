@@ -31,6 +31,9 @@ class FakeLLMState:
         self.headers: list[dict[str, str]] = []
         self.status: int = 200
         self.models: list[str] = ["fake-model"]
+        # Request parameters this server refuses, the way OpenAI's newer models
+        # refuse max_tokens or a non-default temperature: param -> message.
+        self.reject_params: dict[str, str] = {}
 
     def next_reply(self) -> dict[str, Any]:
         return self.replies.pop(0) if self.replies else dict(FINAL)
@@ -51,6 +54,19 @@ def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMS
         body = await record(request)
         if state.status != 200:
             return JSONResponse({"error": {"message": "fake failure"}}, status_code=state.status)
+        for param, text in state.reject_params.items():
+            if param in body:
+                return JSONResponse(
+                    {
+                        "error": {
+                            "message": text,
+                            "type": "invalid_request_error",
+                            "param": param,
+                            "code": "unsupported_parameter",
+                        }
+                    },
+                    status_code=400,
+                )
         reply = state.next_reply()
         message: dict[str, Any] = {"role": "assistant", "content": reply.get("content", "")}
         if reply.get("tool_calls"):

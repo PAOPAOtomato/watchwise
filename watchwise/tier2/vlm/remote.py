@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from watchwise.llm.base import openai_url
+from watchwise.llm.openai_compat import RequestTuning, error_message
 from watchwise.tier2.vlm.base import VLMBackend
 from watchwise.types import Frame
 
@@ -88,21 +89,28 @@ class OpenAICompatVLM(VLMBackend):
         timeout_s: float = 20.0,
         temperature: float = 0.0,
         max_tokens: int = 512,
+        effort: str | None = None,
+        client: httpx.AsyncClient | None = None,
     ):
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.tuning = RequestTuning(self.base_url, effort=effort)
         key = os.environ.get(api_key_env, "") if api_key_env else ""
         if api_key_env and not key:
             # Screening must fail open, so this is a warning, not an error:
             # calls will fail and screen as "uncertain" until the key is set.
             logger.warning("%s is not set; screening with %s will fail", api_key_env, model)
         headers = {"Authorization": f"Bearer {key}"} if key else {}
-        self._client = httpx.AsyncClient(timeout=timeout_s, headers=headers)
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=timeout_s, headers=headers)
+        if client is not None and headers:
+            self._client.headers.update(headers)
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()
 
     async def infer(self, frames: list[Frame], prompt: str, system: str) -> str:
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
@@ -121,11 +129,16 @@ class OpenAICompatVLM(VLMBackend):
                 {"role": "system", "content": system},
                 {"role": "user", "content": content},
             ],
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            "response_format": {"type": "json_object"},
         }
-        r = await self._client.post(openai_url(self.base_url, "chat/completions"), json=body)
-        r.raise_for_status()
+        url = openai_url(self.base_url, "chat/completions")
+        for _ in range(5):  # at most one adaptation per tunable parameter
+            request = self.tuning.apply(
+                body, max_tokens=self.max_tokens, temperature=self.temperature, json_mode=True
+            )
+            r = await self._client.post(url, json=request)
+            if not self.tuning.adapt(r):
+                break
+        if r.status_code >= 400:
+            raise RuntimeError(f"HTTP {r.status_code}: {error_message(r)}")
         data = r.json()
         return str(data["choices"][0]["message"]["content"])

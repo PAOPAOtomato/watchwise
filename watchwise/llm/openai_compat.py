@@ -12,6 +12,7 @@ import json
 import os
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -30,6 +31,93 @@ from watchwise.llm.base import (
 )
 
 
+# Our effort levels, as OpenAI's reasoning_effort values.
+_REASONING_EFFORT = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
+
+
+def error_message(response: httpx.Response) -> str:
+    """The human-readable part of an error response, whatever its shape."""
+    try:
+        data = response.json()
+    except ValueError:
+        return response.text[:300]
+    err = data.get("error", data) if isinstance(data, dict) else data
+    if isinstance(err, dict):
+        return str(err.get("message") or err.get("detail") or err)[:300]
+    return str(err)[:300]
+
+
+class RequestTuning:
+    """Which optional request parameters a server accepts, learned once.
+
+    "OpenAI-compatible" servers disagree on details. OpenAI's current models
+    require ``max_completion_tokens`` and accept only the default temperature;
+    most local servers expect ``max_tokens``; not all accept
+    ``reasoning_effort`` or ``response_format``. Instead of a per-server table,
+    a 400 that names one of these parameters switches or drops it (once each)
+    and the request is retried. The result is remembered for the client's
+    lifetime, so the cost is at most one rejected, unbilled request each.
+    """
+
+    def __init__(self, base_url: str, *, effort: str | None = None):
+        host = (urlsplit(base_url).hostname or "").lower()
+        self.token_param = "max_completion_tokens" if host.endswith("openai.com") else "max_tokens"
+        self.send_temperature = True
+        self.reasoning_effort = _REASONING_EFFORT.get(effort) if effort else None
+        self.send_response_format = True
+        self._token_switched = False
+
+    def apply(
+        self,
+        body: dict[str, Any],
+        *,
+        max_tokens: int,
+        temperature: float,
+        json_mode: bool = False,
+    ) -> dict[str, Any]:
+        out = dict(body)
+        out[self.token_param] = max_tokens
+        if self.send_temperature:
+            out["temperature"] = temperature
+        if self.reasoning_effort:
+            out["reasoning_effort"] = self.reasoning_effort
+        if json_mode and self.send_response_format:
+            out["response_format"] = {"type": "json_object"}
+        return out
+
+    def adapt(self, response: httpx.Response) -> bool:
+        """Adjust to a parameter the server rejected. True means retry."""
+        if response.status_code != 400:
+            return False
+        try:
+            data = response.json()
+        except ValueError:
+            return False
+        err = data.get("error") if isinstance(data, dict) else None
+        if not isinstance(err, dict):
+            return False
+        param = str(err.get("param") or "")
+        message = str(err.get("message") or "")
+        if param in ("max_tokens", "max_completion_tokens") or "max_completion_tokens" in message:
+            if self._token_switched:
+                return False
+            self.token_param = (
+                "max_tokens" if self.token_param == "max_completion_tokens" else "max_completion_tokens"
+            )
+            self._token_switched = True
+            return True
+        if param == "temperature" and self.send_temperature:
+            self.send_temperature = False
+            return True
+        if param == "reasoning_effort" and self.reasoning_effort:
+            self.reasoning_effort = None
+            return True
+        if param == "response_format" and self.send_response_format:
+            self.send_response_format = False
+            return True
+        return False
+
+
 class OpenAICompatChat(ChatModel):
     provider = "openai_compat"
 
@@ -43,6 +131,7 @@ class OpenAICompatChat(ChatModel):
         timeout_s: float = 120.0,
         temperature: float = 0.0,
         max_tokens: int = 2048,
+        effort: str | None = None,
         client: httpx.AsyncClient | None = None,
     ):
         super().__init__(model)
@@ -51,6 +140,7 @@ class OpenAICompatChat(ChatModel):
         self.base_url = base_url
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.tuning = RequestTuning(base_url, effort=effort)
         key = api_key or (os.environ.get(api_key_env, "") if api_key_env else "")
         if api_key_env and not key:
             # A named key that is missing is a setup error, not "no auth":
@@ -85,8 +175,6 @@ class OpenAICompatChat(ChatModel):
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [self._wire(m) for m in messages],
-            "temperature": self.temperature,
-            "max_tokens": max_tokens or self.max_tokens,
         }
         if tools:
             body["tools"] = [
@@ -101,16 +189,24 @@ class OpenAICompatChat(ChatModel):
                 for t in tools
             ]
             body["tool_choice"] = "auto"
-        if json_mode:
-            body["response_format"] = {"type": "json_object"}
 
-        started = time.perf_counter()
-        try:
-            r = await self._client.post(openai_url(self.base_url, "chat/completions"), json=body)
-        except httpx.HTTPError as exc:
-            raise ChatModelError(f"{self.describe()}: {type(exc).__name__}: {exc}") from exc
+        url = openai_url(self.base_url, "chat/completions")
+        for _ in range(5):  # at most one adaptation per tunable parameter
+            request = self.tuning.apply(
+                body,
+                max_tokens=max_tokens or self.max_tokens,
+                temperature=self.temperature,
+                json_mode=json_mode,
+            )
+            started = time.perf_counter()
+            try:
+                r = await self._client.post(url, json=request)
+            except httpx.HTTPError as exc:
+                raise ChatModelError(f"{self.describe()}: {type(exc).__name__}: {exc}") from exc
+            if not self.tuning.adapt(r):
+                break
         if r.status_code >= 400:
-            raise ChatModelError(f"{self.describe()}: HTTP {r.status_code}: {r.text[:300]}")
+            raise ChatModelError(f"{self.describe()}: HTTP {r.status_code}: {error_message(r)}")
         try:
             data = r.json()
             choice = data["choices"][0]

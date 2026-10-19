@@ -236,9 +236,62 @@ async def test_openai_compat_errors_become_chat_model_errors(fake_llm):
     state, client = fake_llm
     state.status = 500
     chat = OpenAICompatChat("fake-model", "http://fake-llm", client=client)
-    with pytest.raises(ChatModelError, match="HTTP 500"):
+    with pytest.raises(ChatModelError, match="HTTP 500: fake failure$"):
         await chat.complete([Message.user("go")])
     assert await chat.list_models() == ["fake-model"]
+
+
+async def test_a_rejected_token_parameter_is_switched_once_and_remembered(fake_llm):
+    """OpenAI's GPT-5 models refuse max_tokens and want max_completion_tokens."""
+    state, client = fake_llm
+    state.reject_params = {
+        "max_tokens": "Unsupported parameter: 'max_tokens' is not supported with this model. "
+        "Use 'max_completion_tokens' instead."
+    }
+    chat = OpenAICompatChat("fake-model", "http://fake-llm", client=client, max_tokens=321)
+    first = await chat.complete([Message.user("one")])
+    second = await chat.complete([Message.user("two")])
+    assert first.content and second.content
+    assert len(state.requests) == 3  # one rejected attempt, then remembered
+    assert "max_tokens" in state.requests[0]
+    assert state.requests[1]["max_completion_tokens"] == 321 and "max_tokens" not in state.requests[1]
+    assert "max_tokens" not in state.requests[2]
+
+
+async def test_rejected_temperature_and_effort_are_dropped(fake_llm):
+    state, client = fake_llm
+    state.reject_params = {
+        "temperature": "Unsupported value: 'temperature' does not support 0 with this model.",
+        "reasoning_effort": "Unrecognized request argument supplied: reasoning_effort",
+    }
+    chat = OpenAICompatChat("fake-model", "http://fake-llm", client=client, effort="low")
+    result = await chat.complete([Message.user("go")])
+    assert result.content
+    assert state.requests[0]["reasoning_effort"] == "low"
+    final = state.requests[-1]
+    assert "temperature" not in final and "reasoning_effort" not in final
+
+
+def test_openai_hosts_start_with_the_parameter_they_require():
+    from watchwise.llm.openai_compat import RequestTuning
+
+    assert RequestTuning("https://api.openai.com/v1").token_param == "max_completion_tokens"
+    assert RequestTuning("http://localhost:1234").token_param == "max_tokens"
+    assert RequestTuning("http://x", effort="max").reasoning_effort == "high"
+
+
+async def test_openai_compat_screener_adapts_too(fake_llm):
+    from watchwise.tier2.vlm.remote import OpenAICompatVLM
+
+    state, client = fake_llm
+    state.reject_params = {"max_tokens": "Use 'max_completion_tokens' instead.", "temperature": "x"}
+    state.replies.append({"content": '{"verdict": "benign", "confidence": 0.9, "reason": "a cat"}'})
+    vlm = OpenAICompatVLM("fake-model", "http://fake-llm", client=client, effort="low")
+    result = await vlm.screen([Frame(camera="c", timestamp=0.0, jpeg=b"jpg")], "prompt", "system")
+    assert (result.verdict, result.confidence, result.error) == (Verdict.BENIGN, 0.9, None)
+    final = state.requests[-1]
+    assert final["max_completion_tokens"] and "temperature" not in final
+    assert final["response_format"] == {"type": "json_object"}
 
 
 # ---------------------------------------------------------------- Ollama native

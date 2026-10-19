@@ -49,6 +49,11 @@ cloud_providers:
       model: gpt-5-mini
       max_tokens: 4096
       timeout_s: 120
+    # Same idea as for Claude: chat answers fast at low reasoning effort.
+    role_overrides:
+      screener: {effort: low}
+      investigator: {effort: medium}
+      chat: {effort: low}
     verify_model: true
   gemini:
     env: [WATCHWISE_GEMINI_API_KEY, GEMINI_API_KEY]
