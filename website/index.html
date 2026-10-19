@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f5ef" />
+    <meta name="description" content="An AI guard for the cameras you already have. Explore how Watchwise filters distractions, investigates with evidence, and learns from your corrections. Built on Frigate. Local by default." />
+    <meta property="og:title" content="Watchwise — A little more aware. A lot more at ease." />
+    <meta property="og:description" content="An AI guard for your existing cameras. Fewer distractions, evidence behind every decision, and learning that starts with you." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Watchwise — An AI guard for the cameras you already have</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a class="wordmark" href="#" aria-label="Watchwise home"><img src="/favicon.svg" width="32" height="32" alt="" />watchwise</a>
+      <nav aria-label="Main navigation">
+        <a href="#experience">The experience</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#your-setup">Your setup</a>
+      </nav>
+      <a class="header-cta" href="https://github.com/PAOPAOtomato/watchwise" target="_blank" rel="noreferrer">View on GitHub <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-heading">
+        <p class="eyebrow"><span class="status-dot"></span> OPEN SOURCE. ALWAYS PAYING ATTENTION.</p>
+        <h1 id="hero-heading">An AI guard for the<br /> cameras you already have.</h1>
+        <p class="hero-description">Your cameras see everything. Watchwise helps you see what matters.<br class="desktop-break" /> Fewer distractions. Clear explanations. A little more peace of mind.</p>
+        <div class="hero-actions"><a class="button primary" href="#experience">See it in action <span aria-hidden="true">↘</span></a><a class="text-link" href="#how-it-works">Meet your new watchful eye <span aria-hidden="true">→</span></a></div>
+        <p class="hero-footnote"><span aria-hidden="true">⌁</span> Built on Frigate <span class="separator">/</span> Local by default <span class="separator">/</span> Yours to control</p>
+      </section>
+
+      <section id="experience" class="experience wrap" aria-labelledby="experience-heading">
+        <div class="section-topline"><div><p class="eyebrow">01 / A LITTLE LESS NOISE</p><h2 id="experience-heading">An ordinary evening.<br class="mobile-break" /> An extra set of eyes.</h2></div><p>Select an event. Follow the evidence.<br />See why it deserves your attention—or doesn’t.</p></div>
+        <div class="product-shell">
+          <div class="product-toolbar"><div class="product-title"><img src="/favicon.svg" width="23" height="23" alt="" /><strong>Home overview</strong><span class="toolbar-divider"></span><span class="scenario-label">Illustrated scenario</span></div><button id="reset" class="reset-button" type="button"><span aria-hidden="true">↺</span> Reset story</button></div>
+          <div class="workbench">
+            <div class="camera-area">
+              <div class="camera-view" id="camera-view">
+                <img id="scene" src="/scenes/visitor.svg" alt="Illustrated evening view of a person standing near a home's side gate" width="1600" height="1000" fetchpriority="high" />
+                <div class="camera-shade"></div>
+                <div class="camera-meta"><span><span class="camera-dot"></span><span id="camera-name">Side entry</span><span class="camera-id" id="camera-id">CAM 02</span></span><span id="camera-time">THU · 21:16:08</span></div>
+                <div class="detection-box" id="detection-box"><span id="detection-label">person · rear gate</span><i></i></div>
+                <div class="camera-caption"><div><span class="camera-kicker" id="camera-kicker">A CLOSER LOOK</span><h3 id="camera-title">Someone at the side gate.</h3></div><span class="image-label">SCENE RECONSTRUCTION</span></div>
+              </div>
+              <div class="camera-footer"><div class="pulse-icon" aria-hidden="true">⌁</div><p id="camera-summary">A person remains near the gate. No matching visit is on the roster.</p><span class="record-label">EVENT RECORD</span></div>
+            </div>
+            <aside class="investigation" aria-label="Selected event investigation">
+              <div class="panel-tabs" role="tablist" aria-label="Explore event">
+                <button type="button" role="tab" id="tab-decision" aria-selected="true" aria-controls="panel-decision" tabindex="0" data-tab="decision">Decision</button>
+                <button type="button" role="tab" id="tab-evidence" aria-selected="false" aria-controls="panel-evidence" tabindex="-1" data-tab="evidence">Evidence <span id="evidence-count">4</span></button>
+                <button type="button" role="tab" id="tab-ask" aria-selected="false" aria-controls="panel-ask" tabindex="-1" data-tab="ask">Ask Watchwise</button>
+              </div>
+              <div id="panel-decision" class="panel-content" role="tabpanel" aria-labelledby="tab-decision" tabindex="0"></div>
+              <div id="panel-evidence" class="panel-content" role="tabpanel" aria-labelledby="tab-evidence" tabindex="0" hidden></div>
+              <div id="panel-ask" class="panel-content ask-panel" role="tabpanel" aria-labelledby="tab-ask" tabindex="0" hidden>
+                <div class="ask-heading"><img src="/favicon.svg" width="32" height="32" alt="" /><div><h3>Ask Watchwise</h3><p>Let’s look at the evidence.</p></div></div>
+                <div id="conversation" class="conversation" role="log" aria-label="Conversation about selected event" aria-live="polite"></div>
+                <div class="suggestions"><button type="button" data-question="Why did you alert me?">Why did you alert me? <span aria-hidden="true">↗</span></button><button type="button" data-question="What did you filter out?">What did you filter out? <span aria-hidden="true">↗</span></button><button type="button" data-question="What evidence did you use?">What evidence did you use? <span aria-hidden="true">↗</span></button></div>
+                <form id="ask-form"><label class="sr-only" for="question">Ask about the selected event</label><input id="question" name="question" placeholder="Ask about this event…" autocomplete="off" maxlength="300" required /><button type="submit" aria-label="Send question">↑</button></form>
+                <p class="ask-footnote">Answers use this illustrated scenario’s event record.</p>
+              </div>
+            </aside>
+          </div>
+          <div class="event-stream"><div class="stream-heading"><span class="eyebrow">THE EVENING, EVENT BY EVENT</span><span><span class="status-dot"></span> Select to investigate</span></div><div id="event-list" class="event-list" role="group" aria-label="Camera events"></div></div>
+          <div class="scenario-summary" aria-label="Current scenario totals"><span><strong id="event-total">4</strong> events in this story</span><span><i class="tiny-dot green"></i><strong id="quiet-total">2</strong> resolved quietly</span><span><i class="tiny-dot amber"></i><strong id="review-total">2</strong> for review</span><span id="corrected-total" hidden><strong>1</strong> corrected by you</span><span class="summary-note">Every decision leaves a trail.</span></div>
+        </div>
+        <div class="learning-nudge"><span class="nudge-icon" aria-hidden="true">↳</span><p><strong>A little context changes the next decision.</strong> The cleaner is expected. Tell Watchwise, then see what happens next time.</p><button id="try-correction" class="text-link" type="button">Teach Watchwise <span aria-hidden="true">→</span></button></div>
+        <p id="story-announcement" class="sr-only" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="how-it-works" class="how-section wrap" aria-labelledby="how-heading">
+        <div class="how-intro"><p class="eyebrow">02 / THOUGHTFUL BY DESIGN</p><h2 id="how-heading">More understanding.<br /><span>Less interruption.</span></h2><p>Not every movement needs your attention. Watchwise starts with what it knows, looks closer when it needs to, and keeps you in the loop.</p><a class="text-link" href="https://github.com/PAOPAOtomato/watchwise#how-it-works" target="_blank" rel="noreferrer">Explore the architecture <span aria-hidden="true">↗</span></a></div>
+        <ol class="process-list">
+          <li><span class="process-number">01</span><div><h3>Recognize the routine.</h3><p>Rules, duplicates, and trusted patterns resolve familiar events before a model is called.</p><span class="process-tag">THE GATE <span aria-hidden="true">↗</span></span></div></li>
+          <li><span class="process-number">02</span><div><h3>Look closer when it matters.</h3><p>A vision model screens what’s left. Uncertainty goes to a human while an agent gathers context from footage, related events, and your duty roster.</p><span class="process-tag">VISION + INVESTIGATION <span aria-hidden="true">↗</span></span></div></li>
+          <li><span class="process-number">03</span><div><h3>Learn from your perspective.</h3><p>Your corrections shape long-term memory. Patterns earn trust through review, decay with age, and lose authority when you disagree.</p><span class="process-tag">HUMAN FEEDBACK <span aria-hidden="true">↗</span></span></div></li>
+        </ol>
+      </section>
+
+      <section id="your-setup" class="setup-section" aria-labelledby="setup-heading"><div class="wrap">
+        <div class="section-topline"><div><p class="eyebrow">03 / YOUR CAMERAS. YOUR CALL.</p><h2 id="setup-heading">Intelligence at home.<br />Control in your hands.</h2></div><p>An extra layer for the setup you already trust.<br />Open source, from the first event to the final decision.</p></div>
+        <div class="principles">
+          <article><div class="principle-art local-art" aria-hidden="true"><span class="art-camera">◉</span><i></i><span class="art-home">⌂</span><span class="local-boundary">YOUR NETWORK</span></div><span class="eyebrow">01 — LOCAL BY DEFAULT</span><h3>Your footage stays close.</h3><p>Run models on your own hardware. Choose optional cloud providers when you want them: hybrid sends text, while a full cloud profile sends images and text.</p></article>
+          <article><div class="principle-art hardware-art" aria-hidden="true"><span>CPU</span><span class="hardware-chip">⌘<small>YOUR HARDWARE</small></span><span>GPU</span></div><span class="eyebrow">02 — BUILT AROUND FRIGATE</span><h3>Keep the cameras you love.</h3><p>Watchwise reads Frigate’s HTTP API and MQTT events. Hardware profiles cover CPU, NVIDIA, Apple Silicon, and AMD on Linux. CPU-only screening takes longer.</p></article>
+          <article><div class="principle-art audit-art" aria-hidden="true"><div><span>✓ &nbsp; Evidence collected</span><span>✓ &nbsp; Decision recorded</span><span>↳ &nbsp; Open to correction</span></div></div><span class="eyebrow">03 — ALWAYS ACCOUNTABLE</span><h3>Even silence has a reason.</h3><p>Inspect held-back alerts and the reasoning behind each verdict. Errors and timeouts go to human review. Watchwise never writes to your Frigate installation.</p></article>
+        </div>
+      </div></section>
+
+      <section id="installation" class="installation wrap" aria-labelledby="installation-heading">
+        <div class="installation-copy"><p class="eyebrow">04 / MAKE YOURSELF AT HOME</p><h2 id="installation-heading">Give your cameras<br />a little more wisdom.</h2><p>Start with your hardware. Watchwise’s setup tools help you choose a profile, configure your models, and connect to Frigate.</p><a class="button primary" href="https://github.com/PAOPAOtomato/watchwise#try-it-in-two-minutes-no-cameras-no-gpu-no-api-key" target="_blank" rel="noreferrer">Get started on GitHub <span aria-hidden="true">↗</span></a><p class="install-requirements">Python 3.11+ · Frigate + MQTT for your cameras<br />MIT licensed. Open to your ideas.</p></div>
+        <div class="terminal"><div class="terminal-toolbar"><span><i></i><i></i><i></i></span><span>YOUR NEXT STEPS</span><button id="copy-commands" type="button" aria-label="Copy setup commands">Copy <span aria-hidden="true">⧉</span></button></div><div class="terminal-body"><p class="terminal-comment"># After installing from the repository</p><p><span>$</span> watchwise doctor</p><div class="terminal-annotation">Understand your hardware and available models.</div><p><span>$</span> watchwise init</p><div class="terminal-annotation">Review the plan. Make it your own.</div><p><span>$</span> watchwise check</p><div class="terminal-annotation">Check your configured model connections.</div><p><span>$</span> watchwise serve</p><div class="terminal-annotation">Connect the guard to your Frigate.</div></div><div class="terminal-bottom"><span class="status-dot"></span> Your hardware. Your models. Your watch.</div><p id="copy-status" class="sr-only" role="status"></p></div>
+      </section>
+    </main>
+
+    <footer class="site-footer wrap"><a class="wordmark" href="#" aria-label="Watchwise home"><img src="/favicon.svg" width="29" height="29" alt="" />watchwise</a><p>A little more aware. A lot more at ease.</p><div><a href="https://github.com/PAOPAOtomato/watchwise" target="_blank" rel="noreferrer">GitHub ↗</a><a href="https://github.com/PAOPAOtomato/watchwise/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT License ↗</a></div></footer>
+    <noscript><p class="noscript-note">Enable JavaScript to explore the interactive event story. Product information and the installation links remain available below.</p></noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
