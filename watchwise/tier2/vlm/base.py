@@ -12,6 +12,7 @@ escalate everything to the expensive tier for no reason.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -57,6 +58,12 @@ class VLMBackend(ABC):
     """A vision-language model that can screen a handful of frames."""
 
     name: str = "base"
+    # Deadline for one whole screen. None leaves it to the transport, whose
+    # timeouts apply per read, not to the request as a whole.
+    timeout_s: float | None = None
+    # Set while the model is being loaded at start-up, so that a screen that
+    # times out meanwhile can say why.
+    warming: bool = False
 
     def __init__(self, model: str):
         self.model = model
@@ -66,6 +73,11 @@ class VLMBackend(ABC):
         """Return the model's raw text reply, or a ``VLMReply`` when the
         backend knows more (truncation, token counts)."""
 
+    async def load(self) -> bool:
+        """Load the model into memory before the first alert, on servers that
+        load on demand. False means there is nothing to load (the default)."""
+        return False
+
     async def aclose(self) -> None:
         """Release transport resources. Default: nothing to do."""
 
@@ -74,23 +86,24 @@ class VLMBackend(ABC):
 
         started = time.perf_counter()
         try:
-            raw = await self.infer(frames, prompt, system)
+            async with asyncio.timeout(self.timeout_s):
+                raw = await self.infer(frames, prompt, system)
         except Exception as exc:  # transport, timeout, model unavailable
             # httpx timeouts have an empty message; never report an empty error.
             detail = str(exc).strip() or type(exc).__name__
             timed_out = _is_timeout(exc)
-            logger.warning(
-                "VLM %s/%s failed: %s%s", self.name, self.model,
-                "timed out: " if timed_out else "", detail,
-            )
+            if timed_out:
+                within = f"within {self.timeout_s:g}s" if self.timeout_s else "in time"
+                reason = f"the screening model did not answer {within} ({detail})"
+                if self.warming:
+                    reason += "; the model was still being loaded"
+            else:
+                reason = f"screening backend error: {detail}"
+            logger.warning("VLM %s/%s failed: %s", self.name, self.model, reason)
             return ScreenResult(
                 verdict=Verdict.UNCERTAIN,
                 confidence=0.0,
-                reason=(
-                    f"the screening model did not answer in time ({detail})"
-                    if timed_out
-                    else f"screening backend error: {detail}"
-                ),
+                reason=reason,
                 backend=self.name,
                 model=self.model,
                 latency_ms=(time.perf_counter() - started) * 1000.0,

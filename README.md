@@ -158,6 +158,10 @@ The bot uses long polling, so no port is opened and no public URL is needed.
 
 * **Cost-aware.** The gate resolves the repetitive majority without any model
   call; the expensive agent sees only what the cheap tiers could not settle.
+* **Quick to reach you.** Screening starts when Frigate reports an event, not
+  when it ends. If the vision model needs more than 10 s (while armed away or
+  at night, any time at all), the card goes out as "Analyzing..." and is
+  edited in place with the verdict.
 * **Fails open.** Errors, timeouts, refusals and unparseable model output all
   become "uncertain", which goes to a human. A failure never hides an alert.
 * **Every silence is auditable.** Held-back alerts are kept, learned patterns
@@ -232,8 +236,8 @@ Desktop, Claude Code, Cursor or any MCP client.
   demotion rather than deletion. Thresholds are conservative by default.
 * On a CPU-only machine, local screening takes tens of seconds per alert, and
   a thinking model can run past the screening timeout; the alert then still
-  reaches you, marked uncertain. Tier 3 is off the alert path, but tier 2 is
-  not. `watchwise check --role screener` shows what your machine does.
+  reaches you, marked uncertain. The card isn't held up by it, but the
+  verdict is. `watchwise check --role screener` shows what your machine does.
 
 ## Development
 

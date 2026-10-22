@@ -366,7 +366,17 @@ async def _check_screener(config: Any) -> CheckResult:
         vlm = build_vlm(settings)
     except Exception as exc:
         return CheckResult("screener", target, "fail", str(exc))
+    loaded = ""
     try:
+        started = time.perf_counter()
+        try:
+            # Load the model first, so the screen below is timed warm.
+            if await vlm.load():
+                loaded = f"; model load {time.perf_counter() - started:.1f}s"
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+            detail = _ollama_unreachable(settings, error) or f"could not load the model: {error}"
+            return CheckResult("screener", target, "fail", detail[:300])
         now = time.time()
         ctx = AlertContext(review_id="check", camera="check_cam", start_time=now - 8, end_time=now, labels=["person"])
         frame = Frame(camera="check_cam", timestamp=now, jpeg=synthetic_frame())
@@ -374,11 +384,15 @@ async def _check_screener(config: Any) -> CheckResult:
     finally:
         await vlm.aclose()
     if result.error == TIMEOUT:
-        detail = (
-            f"no reply within vlm.timeout_s = {settings.timeout_s:g}s. Loading a model for the "
-            "first time can take longer: run check again, and raise vlm.timeout_s if it persists"
-        )
-        return CheckResult("screener", target, "fail", detail, result.latency_ms)
+        detail = f"no reply within vlm.timeout_s = {settings.timeout_s:g}s"
+        if loaded:
+            detail += ", with the model already loaded: raise vlm.timeout_s, or use a smaller model"
+        else:
+            detail += (
+                ". Loading a model for the first time can take longer: run check again, "
+                "and raise vlm.timeout_s if it persists"
+            )
+        return CheckResult("screener", target, "fail", detail + loaded, result.latency_ms)
     if result.error in REPLY_PROBLEMS:
         # It answered, but every real alert would screen as "uncertain" and
         # escalate to the investigator.
@@ -388,23 +402,27 @@ async def _check_screener(config: Any) -> CheckResult:
                 f". Raise {config.screener_max_tokens_key()} (thinking models need about 1000), "
                 "or use a non-thinking model"
             )
-        return CheckResult("screener", target, "warn", detail, result.latency_ms)
+        return CheckResult("screener", target, "warn", detail + loaded, result.latency_ms)
     if result.error:
-        detail = result.reason[:300]
-        if settings.backend == "ollama" and "connect" in str(result.error).lower():
-            where = settings.base_url or "http://localhost:11434"
-            detail = (
-                f"Ollama is not reachable at {where}. Install it from https://ollama.com, "
-                f"then run: ollama pull {settings.model}"
-            )
-        return CheckResult("screener", target, "fail", detail, result.latency_ms)
+        detail = _ollama_unreachable(settings, str(result.error)) or result.reason[:300]
+        return CheckResult("screener", target, "fail", detail + loaded, result.latency_ms)
     tokens = f", {result.tokens['output']} output tokens" if result.tokens.get("output") else ""
     return CheckResult(
         "screener",
         target,
         "ok",
-        f"answered {result.verdict.value} @ {result.confidence:.2f} (a drawn test image{tokens})",
+        f"answered {result.verdict.value} @ {result.confidence:.2f} (a drawn test image{tokens}){loaded}",
         result.latency_ms,
+    )
+
+
+def _ollama_unreachable(settings: Any, error: str) -> str | None:
+    if settings.backend != "ollama" or "connect" not in error.lower():
+        return None
+    where = settings.base_url or "http://localhost:11434"
+    return (
+        f"Ollama is not reachable at {where}. Install it from https://ollama.com, "
+        f"then run: ollama pull {settings.model}"
     )
 
 
@@ -447,6 +465,8 @@ async def probe_tool_calling(chat: Any) -> tuple[str, str, float]:
 
 
 async def _check_chat_role(config: Any, role: str) -> CheckResult:
+    import time
+
     from watchwise.llm.registry import build_chat_model
 
     endpoint = config.endpoint(role)
@@ -467,11 +487,16 @@ async def _check_chat_role(config: Any, role: str) -> CheckResult:
     except Exception as exc:
         return CheckResult(role, target, "fail", str(exc))
     try:
+        started = time.perf_counter()
+        loaded = await chat.load()  # so the probe below is timed warm
+        load_s = time.perf_counter() - started
         status, detail, latency = await probe_tool_calling(chat)
     except Exception as exc:
         return CheckResult(role, target, "fail", (str(exc) or type(exc).__name__)[:300])
     finally:
         await chat.aclose()
+    if loaded:
+        detail += f"; model load {load_s:.1f}s"
     return CheckResult(role, target, status, detail, latency)
 
 

@@ -379,16 +379,27 @@ def local_screener(tmp_path):
     return path
 
 
-def screener_answering(monkeypatch, behaviour):
+def screener_answering(monkeypatch, behaviour, *, needs_loading=False):
     from watchwise.tier2.vlm.base import VLMBackend
 
     class Scripted(VLMBackend):
         name = "ollama"
 
+        async def load(self):
+            return needs_loading
+
         async def infer(self, frames, prompt, system):
             return behaviour()
 
     monkeypatch.setattr("watchwise.tier2.vlm.registry.build_vlm", lambda settings: Scripted(settings.model))
+
+
+def test_cli_check_loads_the_model_before_timing_the_screen(local_screener, monkeypatch, capsys):
+    reply = '{"verdict": "benign", "confidence": 0.9, "reason": "a cat"}'
+    screener_answering(monkeypatch, lambda: reply, needs_loading=True)
+    assert cli.main(["check", "--config", str(local_screener), "--role", "screener"]) == 0
+    out = capsys.readouterr().out
+    assert "[ok  ] screener" in out and "answered benign @ 0.90" in out and "; model load 0.0s" in out
 
 
 def test_cli_check_fails_on_a_screener_timeout(local_screener, monkeypatch, capsys):

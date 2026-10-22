@@ -107,6 +107,32 @@ async def test_the_card_is_updated_in_place_when_the_investigation_finishes(syst
     assert "Investigating" not in edit["text"]
 
 
+async def test_a_slow_verdict_first_shows_an_analyzing_card_then_edits_it(system):
+    import asyncio
+
+    from watchwise.tier2.vlm.base import VLMBackend
+
+    class Slow(VLMBackend):
+        name = "slow"
+
+        async def infer(self, frames, prompt, system):
+            await asyncio.sleep(0.7)
+            return '{"verdict": "suspicious", "confidence": 0.85, "reason": "a person at the fence"}'
+
+    sys_, state = system
+    sys_.screener.vlm = Slow("slow-vlm")  # armed by default: the card goes out at once
+    await sys_.pipeline.handle(night_person())
+    await sys_.notifier.drain()
+
+    assert len(state.sent) == 1
+    assert "Analyzing the frames" in state.sent[0]["text"]
+    # No "Look closer" on the placeholder: the verdict may queue an investigation itself.
+    assert state.buttons(state.sent[0]) == ["fb:ok:rev-a", "fb:real:rev-a", "fb:snooze:rev-a", "fb:why:rev-a"]
+    verdict = state.edits[0]
+    assert verdict["message_id"] == state.sent[0]["message_id"]
+    assert "a person at the fence" in verdict["text"] and "Analyzing" not in verdict["text"]
+
+
 async def test_routine_activity_sends_nothing(system):
     sys_, state = system
     await sys_.pipeline.handle(make_alert(review_id="cat", camera="cam_yard", labels=["cat"]))

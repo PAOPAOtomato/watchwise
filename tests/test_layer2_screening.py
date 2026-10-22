@@ -56,6 +56,14 @@ def test_gate_dedupes_within_the_window_but_not_outside_it(patterns):
     assert gate.evaluate(make_alert(review_id="r3", start_time=1200.0)).passed_through
 
 
+def test_a_review_is_never_a_duplicate_of_itself(patterns):
+    """Frigate reports one event when it starts and again when it ends."""
+    gate = ScreeningGate(GateSettings(dedupe_window_s=60.0), patterns)
+    assert gate.evaluate(make_alert(review_id="r1", start_time=1000.0)).passed_through
+    assert gate.evaluate(make_alert(review_id="r1", start_time=1000.0)).passed_through
+    assert gate.evaluate(make_alert(review_id="r2", start_time=1010.0)).rule == "dedupe_window"
+
+
 def test_gate_score_floor(patterns):
     gate = ScreeningGate(GateSettings(min_object_score=0.7), patterns)
     alert = make_alert()

@@ -16,6 +16,7 @@ from typing import Any
 
 from watchwise.config import WatchwiseConfig
 from watchwise.decision import DecisionPolicy
+from watchwise.llm.base import ChatModel
 from watchwise.memory.feedback import FeedbackLoop
 from watchwise.memory.long_term import PatternLibrary
 from watchwise.memory.store import Store
@@ -35,6 +36,7 @@ from watchwise.tools.base import ToolContext
 from watchwise.tools.device_status import ArmingState
 from watchwise.tools.duty_roster import DutyRoster
 from watchwise.types import AlertContext
+from watchwise.warmup import ModelWarmer, refresh_interval
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +59,10 @@ class System:
     memory_sink: MemorySink
     arming: ArmingState
     sources: list[AlertSource] = field(default_factory=list)
-    # Long-running workers with start()/stop(): the Telegram notifier and bot.
+    # Long-running workers with start()/stop(): the model warmer and the
+    # Telegram notifier and bot.
     background: list[Any] = field(default_factory=list)
+    warmer: ModelWarmer | None = None
     notifier: Any = None
     bot: Any = None
     _closers: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
@@ -180,6 +184,12 @@ def build_system(
     investigator = Investigator(backend, tool_ctx, store, config.agent, config.memory)
     investigations = InvestigationQueue(investigator, config.agent)
 
+    warmer = None
+    if config.service.warm_up_models:
+        chat = getattr(backend, "chat", None)
+        others = [("investigator", chat)] if isinstance(chat, ChatModel) else []
+        warmer = ModelWarmer(vlm, others, refresh_s=refresh_interval(screening.keep_alive))
+
     memory_sink = MemorySink()
     sinks: list[Any] = [memory_sink, LogSink()]
     closers: list[Callable[[], Awaitable[None]]] = [screener.aclose, backend.aclose, nvr.aclose]
@@ -213,11 +223,12 @@ def build_system(
         store,
         investigations=investigations,
         sinks=sinks,
+        arming=arming,
     )
 
     sources: list[AlertSource] = []
     if start_sources and config.mqtt.enabled:
-        sources.append(MQTTAlertSource(alert_queue, config.mqtt))
+        sources.append(MQTTAlertSource(alert_queue, config.mqtt, screen_on=config.mqtt.screen_on))
 
     system = System(
         config=config,
@@ -234,7 +245,8 @@ def build_system(
         memory_sink=memory_sink,
         arming=arming,
         sources=sources,
-        background=[w for w in (notifier, bot) if w is not None],
+        background=[w for w in (warmer, notifier, bot) if w is not None],
+        warmer=warmer,
         notifier=notifier,
         bot=bot,
     )

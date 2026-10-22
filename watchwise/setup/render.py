@@ -39,7 +39,11 @@ SECTION_COMMENTS = {
     "vlm": "# Tier-2 tuning: how many frames per alert, how large, how many at once.",
     "agent": "# Tier-3 investigation budget.",
     "gate": "# The free, model-free filter in front of everything.",
-    "decision": "# The risk posture: below these confidences, a human decides.",
+    "decision": (
+        "# The risk posture: below these confidences, a human decides. The first\n"
+        "# card waits up to provisional_after_s (0 s while armed) for the vision\n"
+        "# model, then goes out as \"Analyzing...\" and is edited with the verdict."
+    ),
     "notify": (
         "# Phone alerts (Telegram). Connect a chat with `watchwise telegram link`.\n"
         "# Telegram relays card text, and the snapshot unless send_images is false."
@@ -68,7 +72,13 @@ def build_config_dict(
     return {
         "profile": profile.name,
         "nvr": {"base_url": nvr_url},
-        "mqtt": {"enabled": mqtt_enabled, "host": mqtt_host, "port": 1883, "topic_prefix": topic_prefix},
+        "mqtt": {
+            "enabled": mqtt_enabled,
+            "host": mqtt_host,
+            "port": 1883,
+            "topic_prefix": topic_prefix,
+            "screen_on": ["new", "end"],
+        },
         "models": {name: _clean(spec) for name, spec in models.items()},
         "roles": dict(roles),
         "vlm": vlm,
@@ -79,6 +89,8 @@ def build_config_dict(
             "screen_suspicious_confidence": 0.8,
             "human_fallback_confidence": 0.6,
             "auto_downgrade_confidence": 0.85,
+            "provisional_after_s": 10,
+            "provisional_after_armed_s": 0,
         },
         "notify": {"telegram": {"enabled": False, "chat_ids": [], "send_images": True}},
         "memory": {"db_path": "./data/watchwise.db"},

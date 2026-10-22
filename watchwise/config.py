@@ -52,6 +52,10 @@ class MQTTSettings(BaseModel):
     client_id: str = "watchwise"
     keepalive: int = 60
     enabled: bool = True
+    # Which review reports to screen: "new" (the event started) and "end".
+    # A later report of the same review costs a model call only if it shows
+    # a new object label or zone.
+    screen_on: list[Literal["new", "update", "end"]] = Field(default_factory=lambda: ["new", "end"])
 
 
 class GateSettings(BaseModel):
@@ -182,6 +186,13 @@ class DecisionSettings(BaseModel):
     auto_downgrade_confidence: float = 0.85
     # If true, a suspicious verdict always reaches a human even at high conf.
     always_surface_suspicious: bool = True
+    # How long the first card may wait for the screener. A slower screen gets
+    # an "Analyzing..." card at once, which the verdict then edits in place.
+    # None: always wait for the verdict.
+    provisional_after_s: float | None = 10.0
+    # The same while armed away or at night, when a quick card matters more
+    # than an extra buzz for something harmless.
+    provisional_after_armed_s: float | None = 0.0
 
 
 NotifyOn = Literal["alerted", "escalated_human", "downgraded", "suppressed"]
@@ -234,6 +245,9 @@ class ServiceSettings(BaseModel):
     host: str = "127.0.0.1"
     port: int = 5055
     log_level: str = "INFO"
+    # Load the local models at start-up, and keep the screener loaded while
+    # the service runs, so that no alert waits for a model to load.
+    warm_up_models: bool = True
 
 
 class WatchwiseConfig(BaseModel):

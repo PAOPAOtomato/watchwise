@@ -19,6 +19,9 @@ mqtt:
   port: 1883
   topic_prefix: frigate # must match Frigate's mqtt.topic_prefix
   client_id: watchwise
+  # Screen an event when it starts (new) and look again when it ends (end);
+  # the end costs a model call only if it shows a new label or zone.
+  screen_on: [new, end]
 
 # Model endpoints, by name. provider is one of:
 #   stub           deterministic stand-in: no model, no cost (tests, demos)
@@ -126,6 +129,10 @@ decision:
   human_fallback_confidence: 0.60
   auto_downgrade_confidence: 0.85
   always_surface_suspicious: true
+  # How long the first card may wait for the vision model before it goes out
+  # as "Analyzing..." (edited with the verdict later); null = always wait.
+  provisional_after_s: 10
+  provisional_after_armed_s: 0 # while armed away or at night
 
 duty_roster:
   path: ./config/duty_roster.yml
@@ -135,3 +142,6 @@ service:
   host: 127.0.0.1
   port: 5055
   log_level: INFO
+  # Load the local models at start-up and keep the screener loaded while the
+  # service runs, so no alert waits for a model to be read from disk.
+  warm_up_models: true

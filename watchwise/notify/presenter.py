@@ -41,6 +41,7 @@ STAGE_LABELS = {
     Stage.INVESTIGATED: "after an investigation",
 }
 INVESTIGATING = "🔎 Investigating with the forensic tools; this message will update."
+ANALYZING = "⏳ Analyzing the frames; this message will update with the verdict."
 
 
 @dataclass(frozen=True)
@@ -99,10 +100,13 @@ def build_card(ctx: AlertContext, decision: Decision) -> AlertCard:
     subject = ", ".join(label.capitalize() for label in ctx.labels) or "Motion"
     where = ctx.camera + (f" · {', '.join(ctx.zones)}" if ctx.zones else "")
     when = safe_strftime(ctx.start_time, "%H:%M")
-    lines = [
-        f"Why: {plain_reason(decision)}",
-        f"Confidence {decision.confidence:.2f} · {STAGE_LABELS.get(decision.stage, decision.stage.value)}",
-    ]
+    if _analyzing(decision):
+        lines = [ANALYZING]
+    else:
+        lines = [
+            f"Why: {plain_reason(decision)}",
+            f"Confidence {decision.confidence:.2f} · {STAGE_LABELS.get(decision.stage, decision.stage.value)}",
+        ]
     if _investigating(decision):
         lines.append(INVESTIGATING)
     return AlertCard(
@@ -119,9 +123,15 @@ def _investigating(decision: Decision) -> bool:
     return decision.stage is Stage.SCREENED and decision.disposition is Disposition.ALERTED
 
 
+def _analyzing(decision: Decision) -> bool:
+    # The pipeline's placeholder while a slow screen runs.
+    return decision.stage is Stage.INGESTED and decision.disposition is Disposition.ALERTED
+
+
 def keyboard_for(decision: Decision) -> str:
-    """'Look closer' is offered only when nothing is investigated or queued."""
-    if decision.stage is Stage.INVESTIGATED or _investigating(decision):
+    """'Look closer' is offered only when nothing is investigated or queued
+    (nor about to be: an alert raised at screening is always investigated)."""
+    if decision.stage is Stage.INVESTIGATED or _investigating(decision) or _analyzing(decision):
         return "standard"
     return "full"
 

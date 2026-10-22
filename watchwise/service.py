@@ -69,12 +69,15 @@ def create_app(
         app.state.system = system
         app.state.started_at = time.time()
         await system.start()
+        # The models in use, not cfg.vlm / cfg.agent: with roles configured,
+        # those hold unused defaults.
+        investigator = system.investigations.investigator.backend
         logger.info(
-            "watchwise up: vlm=%s/%s agent=%s/%s",
-            cfg.vlm.backend,
-            cfg.vlm.model,
-            cfg.agent.backend,
-            cfg.agent.model,
+            "watchwise up: screener=%s/%s investigator=%s/%s",
+            system.screener.vlm.name,
+            system.screener.vlm.model,
+            investigator.name,
+            investigator.model,
         )
         try:
             yield
@@ -110,10 +113,11 @@ def create_app(
             "nvr": {"reachable": nvr_ok, "detail": nvr_detail,
                     "base_url": system.config.nvr.base_url},
             "tier2": {
-                "backend": system.config.vlm.backend,
-                "model": system.config.vlm.model,
+                "backend": system.screener.vlm.name,
+                "model": system.screener.vlm.model,
                 "stats": system.screener.stats,
             },
+            "warmup": system.warmer.status if system.warmer else {},
             "tier3": {
                 "backend": system.investigations.investigator.backend.name,
                 "model": system.investigations.investigator.backend.model,
@@ -127,7 +131,7 @@ def create_app(
     async def get_config() -> dict[str, Any]:
         system = sys_()
         return {
-            "vlm": system.config.vlm.model_dump(),
+            "vlm": system.config.screener_settings().model_dump(),
             "agent": system.config.agent.model_dump(),
             "gate": system.config.gate.model_dump(),
             "decision": system.policy.describe(),
@@ -290,6 +294,7 @@ def create_app(
         return {
             "window_hours": window_hours,
             "cost_funnel": system.pipeline.cost_funnel(),
+            "latency": system.pipeline.latency(),
             "review_load": system.feedback.review_load(since),
             "accuracy": system.feedback.accuracy_report(since),
             "screener": system.screener.stats,

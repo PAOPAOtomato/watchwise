@@ -97,9 +97,11 @@ class AlertSource(ABC):
 class MQTTAlertSource(AlertSource):
     """Subscribes to NVR's review topic over MQTT.
 
-    Only ``type == "end"`` segments are screened by default: a finished
-    segment has its final label and zone set, and screening a segment that is
-    still growing would burn a model call per update.
+    By default an event is screened when it starts (``new``), so the verdict
+    does not wait for it to end, and its ``end`` report is passed on too: the
+    pipeline calls the model again only if the finished segment shows a new
+    label or zone. ``update`` reports are skipped, since screening a segment
+    on every change would burn a model call per update.
     """
 
     def __init__(
@@ -107,7 +109,7 @@ class MQTTAlertSource(AlertSource):
         queue: "asyncio.Queue[AlertContext]",
         settings: MQTTSettings,
         *,
-        screen_on: Iterable[str] = ("end",),
+        screen_on: Iterable[str] = ("new", "end"),
         severities: Iterable[str] = ("alert",),
     ):
         super().__init__(queue)

@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from watchwise.llm.base import openai_url
+from watchwise.llm.ollama import LOAD_TIMEOUT_S
 from watchwise.llm.openai_compat import RequestTuning, error_message
 from watchwise.tier2.vlm.base import VLMBackend, VLMReply
 from watchwise.types import Frame
@@ -42,6 +43,7 @@ class OllamaVLM(VLMBackend):
     ):
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
+        self.timeout_s = timeout_s
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.context_window = context_window
@@ -52,6 +54,23 @@ class OllamaVLM(VLMBackend):
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+
+    async def load(self) -> bool:
+        # With no prompt, Ollama only loads the model. It must get the same
+        # num_ctx as real screens, or the first real screen reloads it.
+        body: dict[str, Any] = {"model": self.model}
+        if self.context_window:
+            body["options"] = {"num_ctx": self.context_window}
+        if self.keep_alive:
+            body["keep_alive"] = self.keep_alive
+        r = await self._client.post(f"{self.base_url}/api/generate", json=body, timeout=LOAD_TIMEOUT_S)
+        if r.status_code == 404:
+            raise RuntimeError(
+                f"model {self.model} is not on the Ollama server at {self.base_url}; "
+                f"run: ollama pull {self.model}"
+            )
+        r.raise_for_status()
+        return True
 
     async def infer(self, frames: list[Frame], prompt: str, system: str) -> VLMReply:
         images = [base64.b64encode(f.jpeg).decode("ascii") for f in frames]
@@ -111,6 +130,7 @@ class OpenAICompatVLM(VLMBackend):
     ):
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
+        self.timeout_s = timeout_s
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.tuning = RequestTuning(self.base_url, effort=effort)

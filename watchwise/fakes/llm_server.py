@@ -11,6 +11,10 @@ dialect the client used. ``tokens`` makes it a thinking model that needs that
 many output tokens: under a smaller cap in the request, it is cut off while
 still thinking, with no answer, the way qwen3-vl is.
 
+On the Ollama endpoints, ``state.load_delay_s`` makes each model cold: its
+first request waits that long, and any request arriving meanwhile waits for
+the same load. A request with no prompt (or no messages) only loads the model.
+
     POST /v1/chat/completions   GET /v1/models      (OpenAI-compatible)
     POST /api/chat              GET /api/tags       (Ollama native)
     POST /api/generate                              (Ollama native, the screener's)
@@ -18,6 +22,7 @@ still thinking, with no answer, the way qwen3-vl is.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -50,9 +55,18 @@ class FakeLLMState:
         # Request parameters this server refuses, the way OpenAI's newer models
         # refuse max_tokens or a non-default temperature: param -> message.
         self.reject_params: dict[str, str] = {}
+        self.load_delay_s: float = 0.0
+        self.loaded: set[str] = set()
+        self._loading: dict[str, asyncio.Lock] = {}
 
     def next_reply(self) -> dict[str, Any]:
         return self.replies.pop(0) if self.replies else dict(FINAL)
+
+    async def ensure_loaded(self, model: str) -> None:
+        async with self._loading.setdefault(model, asyncio.Lock()):
+            if model not in self.loaded:
+                await asyncio.sleep(self.load_delay_s)
+                self.loaded.add(model)
 
 
 def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMState]:
@@ -123,6 +137,12 @@ def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMS
             return JSONResponse({"error": f"model '{body.get('model')}' not found"}, status_code=404)
         if state.status != 200:
             return JSONResponse({"error": "fake failure"}, status_code=state.status)
+        await state.ensure_loaded(body["model"])
+        if not body.get("messages"):
+            return JSONResponse(
+                {"model": body["model"], "message": {"role": "assistant", "content": ""},
+                 "done": True, "done_reason": "load"}
+            )
         reply = capped(state.next_reply(), (body.get("options") or {}).get("num_predict"))
         message: dict[str, Any] = {"role": "assistant", "content": reply.get("content", "")}
         if reply.get("tool_calls"):
@@ -150,6 +170,11 @@ def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMS
             return JSONResponse({"error": f"model '{body.get('model')}' not found"}, status_code=404)
         if state.status != 200:
             return JSONResponse({"error": "fake failure"}, status_code=state.status)
+        await state.ensure_loaded(body["model"])
+        if "prompt" not in body:
+            return JSONResponse(
+                {"model": body["model"], "response": "", "done": True, "done_reason": "load"}
+            )
         reply = capped(state.next_reply(), (body.get("options") or {}).get("num_predict"))
         out: dict[str, Any] = {
             "model": body["model"],

@@ -79,6 +79,21 @@ class DecisionPolicy:
             matched_memory_ids=gate.matched_pattern_ids,
         )
 
+    # ---------------- while tier 2 runs ----------------
+
+    def provisional(self, ctx: AlertContext) -> Decision:
+        """Sent when the screener is slower than the latency budget, so that
+        the alert is not silent meanwhile. The screened decision replaces it.
+        It alerts, because nothing has cleared the event yet."""
+        return Decision(
+            review_id=ctx.review_id,
+            disposition=Disposition.ALERTED,
+            severity=Severity.ALERT,
+            confidence=0.0,
+            rationale="analyzing: the vision model is still looking at this event",
+            stage=Stage.INGESTED,
+        )
+
     # ---------------- after tier 2 ----------------
 
     def from_screening(self, ctx: AlertContext, screen: ScreenResult) -> tuple[Decision, bool]:

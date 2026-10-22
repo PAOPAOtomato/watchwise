@@ -28,6 +28,9 @@ from watchwise.llm.base import (
 )
 
 DEFAULT_URL = "http://localhost:11434"
+# Reading a model from disk into memory can take minutes on a slow disk, far
+# longer than any per-request timeout.
+LOAD_TIMEOUT_S = 600.0
 
 
 class OllamaChat(ChatModel):
@@ -65,6 +68,26 @@ class OllamaChat(ChatModel):
             return sorted(str(m.get("name")) for m in r.json().get("models", []))
         except (httpx.HTTPError, ValueError):
             return []
+
+    async def load(self) -> bool:
+        # With no messages, Ollama only loads the model. It must get the same
+        # num_ctx as real requests, or the first real request reloads it.
+        body: dict[str, Any] = {"model": self.model, "messages": []}
+        if self.context_window:
+            body["options"] = {"num_ctx": self.context_window}
+        if self.keep_alive:
+            body["keep_alive"] = self.keep_alive
+        try:
+            r = await self._client.post(f"{self.base_url}/api/chat", json=body, timeout=LOAD_TIMEOUT_S)
+        except httpx.HTTPError as exc:
+            raise ChatModelError(
+                f"{self.describe()}: cannot reach Ollama at {self.base_url} ({type(exc).__name__})"
+            ) from exc
+        if r.status_code == 404:
+            raise ChatModelError(f"{self.describe()}: model not found. Run: ollama pull {self.model}")
+        if r.status_code >= 400:
+            raise ChatModelError(f"{self.describe()}: HTTP {r.status_code}: {r.text[:300]}")
+        return True
 
     async def complete(
         self,

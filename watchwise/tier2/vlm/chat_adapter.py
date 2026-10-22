@@ -13,11 +13,17 @@ from watchwise.types import Frame
 
 
 class ChatModelVLM(VLMBackend):
-    def __init__(self, chat: ChatModel, *, max_tokens: int | None = None):
+    def __init__(
+        self, chat: ChatModel, *, max_tokens: int | None = None, timeout_s: float | None = None
+    ):
         super().__init__(chat.model)
         self.chat = chat
         self.name = chat.provider
         self.max_tokens = max_tokens
+        self.timeout_s = timeout_s
+
+    async def load(self) -> bool:
+        return await self.chat.load()
 
     async def infer(self, frames: list[Frame], prompt: str, system: str) -> VLMReply:
         images = [ImagePart(f.jpeg, "image/jpeg") for f in frames]

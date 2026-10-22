@@ -61,8 +61,9 @@ class ScreeningGate:
         self.patterns = patterns
         self.store = store
         self.min_pattern_trust = min_pattern_trust
-        # signature -> last time we resolved one, for in-process dedupe.
-        self._recent: dict[str, float] = {}
+        # signature -> (start time, review id) of the last one we resolved,
+        # for in-process dedupe.
+        self._recent: dict[str, tuple[float, str]] = {}
 
     def evaluate(self, ctx: AlertContext) -> GateResult:
         """Decide whether this alert is worth a model call.
@@ -120,8 +121,10 @@ class ScreeningGate:
         # screened them live or replayed them from a backlog an hour later.
         signature = ctx.signature()
         last = self._recent.get(signature)
-        if last is not None:
-            gap = abs(ctx.start_time - last)
+        # A review is never a duplicate of itself: Frigate reports one event
+        # at its start and again at its end.
+        if last is not None and last[1] != ctx.review_id:
+            gap = abs(ctx.start_time - last[0])
             if gap <= self.settings.dedupe_window_s:
                 return GateResult(
                     passed_through=False,
@@ -140,7 +143,7 @@ class ScreeningGate:
             min_corrections=self.settings.memory_min_corrections,
         )
         if match is not None and match.trust >= self.min_pattern_trust:
-            self._recent[signature] = ctx.start_time
+            self._recent[signature] = (ctx.start_time, ctx.review_id)
             return GateResult(
                 passed_through=False,
                 verdict=Verdict.BENIGN,
@@ -155,7 +158,7 @@ class ScreeningGate:
                 matched_pattern_ids=[match.pattern_id],
             )
 
-        self._recent[signature] = ctx.start_time
+        self._recent[signature] = (ctx.start_time, ctx.review_id)
         self._prune(ctx.start_time)
         return GateResult(passed_through=True, rule="no_rule_matched")
 
@@ -175,4 +178,4 @@ class ScreeningGate:
         if len(self._recent) < 512:
             return
         cutoff = reference - max(self.settings.dedupe_window_s * 4, 300.0)
-        self._recent = {k: v for k, v in self._recent.items() if v >= cutoff}
+        self._recent = {k: v for k, v in self._recent.items() if v[0] >= cutoff}

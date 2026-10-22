@@ -24,6 +24,7 @@ from watchwise.config import (
 )
 from watchwise.fakes.nvr_server import FakeNVRState, build_fake_nvr
 from watchwise.nvr.client import NVRClient
+from watchwise.tier2.vlm.base import VLMBackend
 from watchwise.types import AlertContext, Disposition, Severity, Stage, Verdict
 from watchwise.wiring import build_system
 from tests.conftest import DAY_TS, NIGHT_TS
@@ -75,6 +76,105 @@ def _alert(review_id: str, *, camera="cam_drive", labels=None, zones=None, ts=DA
 
 
 # ---------------- the cascade ----------------
+
+
+BENIGN_REPLY = '{"verdict": "benign", "confidence": 0.9, "reason": "a cat crossing"}'
+
+
+class SlowVLM(VLMBackend):
+    """A screener that takes its time, and counts its calls."""
+
+    name = "slow"
+
+    def __init__(self, delay_s: float):
+        super().__init__("slow-vlm")
+        self.delay_s = delay_s
+        self.calls = 0
+
+    async def infer(self, frames, prompt, system):
+        self.calls += 1
+        await asyncio.sleep(self.delay_s)
+        return BENIGN_REPLY
+
+
+class TogetherVLM(VLMBackend):
+    """Answers only once ``parties`` screens are running at the same time."""
+
+    name = "together"
+
+    def __init__(self, parties: int):
+        super().__init__("together-vlm")
+        self.parties = parties
+        self.prompts: list[str] = []
+        self._all_in = asyncio.Event()
+
+    async def infer(self, frames, prompt, system):
+        self.prompts.append(prompt)
+        if len(self.prompts) >= self.parties:
+            self._all_in.set()
+        await self._all_in.wait()
+        return BENIGN_REPLY
+
+
+async def test_a_slow_screen_sends_an_analyzing_decision_first(system):
+    """B-002: with a slow screener the phone used to stay silent until the verdict."""
+    await system.pipeline.handle(_alert("quick", labels=["cat"]))
+    assert [d.stage for d in system.memory_sink.all_for("quick")] == [Stage.SCREENED]
+
+    system.screener.vlm = SlowVLM(0.7)
+    system.arming.set("armed_away")
+    await system.pipeline.handle(_alert("slow-armed", labels=["cat"], ts=DAY_TS + 3600))
+    first, final = system.memory_sink.all_for("slow-armed")
+    assert (first.stage, first.disposition) == (Stage.INGESTED, Disposition.ALERTED)
+    assert first.rationale.startswith("analyzing")
+    assert (final.stage, final.disposition) == (Stage.SCREENED, Disposition.DOWNGRADED)
+
+    # Disarmed, the first card may wait up to 10 s for the verdict.
+    system.arming.set("disarmed")
+    await system.pipeline.handle(_alert("slow-home", labels=["cat"], ts=DAY_TS + 7200))
+    assert [d.stage for d in system.memory_sink.all_for("slow-home")] == [Stage.SCREENED]
+    assert system.pipeline.latency()["provisional_dispatches"] == 1
+    assert system.pipeline.latency()["first_dispatches"] == 3
+
+
+async def test_an_events_end_costs_a_model_call_only_if_it_shows_something_new(system):
+    """B-004: an event is screened when it starts; its end report calls the
+    model again only for a new label or zone."""
+    vlm = SlowVLM(0.0)
+    system.screener.vlm = vlm
+    start = _alert("walk", labels=["car"], ts=DAY_TS + 9000)
+    start.end_time = None  # still in progress
+    first = await system.pipeline.handle(start)
+
+    same = await system.pipeline.handle(_alert("walk", labels=["car"], ts=DAY_TS + 9000, duration=20.0))
+    assert vlm.calls == 1 and same is first
+    assert system.store.get_alert("walk")["end_time"] == DAY_TS + 9000 + 20.0
+
+    grown = await system.pipeline.handle(
+        _alert("walk", labels=["car", "person"], ts=DAY_TS + 9000, duration=25.0)
+    )
+    assert vlm.calls == 2  # and not taken for a duplicate of its own start
+    assert system.memory_sink.latest("walk") is grown
+    latency = system.pipeline.latency()
+    assert (latency["rescreens"], latency["reports_without_model"]) == (1, 1)
+    assert system.pipeline.cost_funnel()["alerts_ingested"] == 1
+
+
+async def test_one_reviews_reports_go_in_order_while_other_alerts_run_alongside(system):
+    vlm = TogetherVLM(parties=2)  # deadlocks unless two screens overlap
+    system.screener.vlm = vlm
+    a_start = _alert("a", camera="cam_door", labels=["dog"], ts=DAY_TS + 12000)
+    a_end = _alert("a", camera="cam_door", labels=["dog"], ts=DAY_TS + 12000, duration=15.0)
+    b_start = _alert("b", camera="cam_yard", labels=["dog"], ts=DAY_TS + 12000)
+    for ctx in (a_start, a_end, b_start):
+        system.alert_queue.put_nowait(ctx)
+    async with asyncio.timeout(5):
+        await system.alert_queue.join()
+
+    # a's end waited for a's start and found nothing new; b ran alongside a.
+    assert len(vlm.prompts) == 2
+    assert sum('"cam_door"' in p for p in vlm.prompts) == 1 and sum('"cam_yard"' in p for p in vlm.prompts) == 1
+    assert system.pipeline.latency()["reports_without_model"] == 1
 
 
 async def test_a_benign_alert_is_downgraded_by_tier_2_alone(system):
@@ -277,6 +377,31 @@ def test_health_reports_every_tier(client):
     assert body["nvr"]["reachable"] is True
     assert body["tier2"]["backend"] == "stub"
     assert body["tier3"]["backend"] == "scripted"
+    assert body["warmup"] == {}  # stand-in models: nothing to load
+
+
+def test_the_service_names_the_models_in_use(tmp_path, caplog):
+    """B-012: generated configs set the screener in models/roles, which leaves
+    vlm.backend and agent.model at defaults that nothing uses."""
+    import logging
+
+    from fastapi.testclient import TestClient
+
+    from watchwise.config import ModelEndpoint, RolesSettings
+    from watchwise.service import create_app
+
+    config = _config(tmp_path)
+    config.models = {"vision": ModelEndpoint(provider="ollama", model="qwen3-vl:8b", base_url="http://unused:11434")}
+    config.roles = RolesSettings(screener="vision")
+    config.service.warm_up_models = False  # no Ollama here
+    nvr_client, _http = _fake_client(FakeNVRState())
+    with caplog.at_level(logging.INFO, logger="watchwise.service"):
+        with TestClient(create_app(config, nvr_client=nvr_client, start_sources=False)) as c:
+            health = c.get("/health").json()
+            settings = c.get("/config").json()["vlm"]
+    assert (health["tier2"]["backend"], health["tier2"]["model"]) == ("ollama", "qwen3-vl:8b")
+    assert (settings["backend"], settings["model"]) == ("ollama", "qwen3-vl:8b")
+    assert "screener=ollama/qwen3-vl:8b investigator=scripted/" in caplog.text
 
 
 def test_tools_endpoint_lists_all_four_categories(client):

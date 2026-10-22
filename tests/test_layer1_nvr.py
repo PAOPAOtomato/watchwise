@@ -105,6 +105,26 @@ def test_review_payload_without_after_falls_back_to_before():
     assert ctx is not None and ctx.review_id == "r"
 
 
+async def test_mqtt_source_passes_on_an_events_start_and_end_but_not_its_updates():
+    import asyncio
+    from types import SimpleNamespace
+
+    from watchwise.config import MQTTSettings
+    from watchwise.nvr.source import MQTTAlertSource
+
+    queue: asyncio.Queue = asyncio.Queue()
+    source = MQTTAlertSource(queue, MQTTSettings())
+    source._loop = asyncio.get_running_loop()
+    for kind in ("new", "update", "end"):
+        after = {"id": "r", "camera": "c", "start_time": 1.0, "severity": "alert",
+                 "data": {"objects": ["person"]}}
+        msg = SimpleNamespace(payload=json.dumps({"type": kind, "after": after}).encode(), topic="frigate/reviews")
+        source._on_message(None, None, msg)
+    await asyncio.sleep(0.05)
+    assert queue.qsize() == 2
+    assert MQTTSettings().screen_on == ["new", "end"]
+
+
 def test_unknown_severity_defaults_to_alert():
     ctx = review_payload_to_context(
         {"type": "end", "after": {"id": "r", "camera": "c", "start_time": 1.0,

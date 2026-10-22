@@ -159,6 +159,11 @@ class ChatModel(ABC):
         """Models the server offers, where the provider can say. Default: unknown."""
         return []
 
+    async def load(self) -> bool:
+        """Load the model into memory before it is needed, on servers that
+        load on demand. False means there is nothing to load (the default)."""
+        return False
+
     async def aclose(self) -> None:
         """Release transport resources. Default: nothing to do."""
 

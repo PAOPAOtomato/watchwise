@@ -27,7 +27,7 @@ def build_vlm(settings: VLMSettings) -> VLMBackend:
                 refusal_fallback=settings.refusal_fallback,
             )
         )
-        return ChatModelVLM(chat)
+        return ChatModelVLM(chat, timeout_s=settings.timeout_s)
 
     # Imported lazily so a stub-only deployment never needs httpx clients open.
     from watchwise.tier2.vlm.remote import OllamaVLM, OpenAICompatVLM

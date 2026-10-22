@@ -14,8 +14,10 @@ What is asserted here is what lets a user swap hardware and models by config:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import logging
 
 import httpx
 import pytest
@@ -387,6 +389,89 @@ async def test_ollama_missing_model_says_how_to_fix_it(fake_llm):
     chat = OllamaChat("not-pulled:7b", "http://fake-llm", client=client)
     with pytest.raises(ChatModelError, match="ollama pull not-pulled:7b"):
         await chat.complete([Message.user("hi")])
+
+
+# ---------------------------------------------------------------- warm-up
+
+
+async def test_warm_up_loads_each_local_model_with_the_context_it_will_use(fake_llm, caplog):
+    from watchwise.tier2.vlm.remote import OllamaVLM
+    from watchwise.warmup import ModelWarmer
+
+    state, client = fake_llm
+    state.models = ["qwen3-vl:8b", "qwen3:14b"]
+    state.load_delay_s = 0.05
+    vlm = OllamaVLM("qwen3-vl:8b", "http://fake-llm", context_window=8192, keep_alive="30m", client=client)
+    chat = OllamaChat("qwen3:14b", "http://fake-llm", context_window=16384, keep_alive="30m", client=client)
+    warmer = ModelWarmer(vlm, [("investigator", chat)])
+    with caplog.at_level(logging.INFO, logger="watchwise.warmup"):
+        await warmer.warm()
+
+    # A different num_ctx would make Ollama load the model again on the first
+    # real request. The screener comes last as well as first, so if the two
+    # models don't fit in memory together, the alert path keeps its model.
+    sent = [(r["model"], r["options"]["num_ctx"], r["keep_alive"]) for r in state.requests]
+    assert sent == [("qwen3-vl:8b", 8192, "30m"), ("qwen3:14b", 16384, "30m"), ("qwen3-vl:8b", 8192, "30m")]
+    assert "prompt" not in state.requests[0] and state.requests[1]["messages"] == []
+    assert warmer.status["screener"]["ready"] and warmer.status["investigator"]["ready"]
+    assert "warm-up: screener model ollama/qwen3-vl:8b ready after" in caplog.text
+    assert "investigator model ollama/qwen3:14b ready after" in caplog.text
+
+
+async def test_a_screen_while_the_model_is_loading_times_out_and_says_why(fake_llm):
+    from watchwise.tier2.vlm.remote import OllamaVLM
+    from watchwise.warmup import ModelWarmer
+
+    state, client = fake_llm
+    state.models = ["qwen3-vl:8b"]
+    state.load_delay_s = 0.5  # a cold model takes longer to load than the screener waits
+    state.replies.append({"content": '{"verdict": "benign", "confidence": 0.9, "reason": "a cat"}'})
+    vlm = OllamaVLM("qwen3-vl:8b", "http://fake-llm", timeout_s=0.1, client=client)
+    warming = asyncio.create_task(ModelWarmer(vlm).warm())
+    await asyncio.sleep(0.02)
+    frame = Frame(camera="c", timestamp=0.0, jpeg=b"jpg")
+
+    early = await vlm.screen([frame], "prompt", "system")
+    assert (early.verdict, early.confidence, early.error) == (Verdict.UNCERTAIN, 0.0, "timeout")
+    assert "did not answer within 0.1s" in early.reason
+    assert "the model was still being loaded" in early.reason
+
+    await warming
+    later = await vlm.screen([frame], "prompt", "system")
+    assert (later.verdict, later.error) == (Verdict.BENIGN, None)
+
+
+async def test_the_warmer_keeps_the_screener_loaded_until_stopped(fake_llm):
+    from watchwise.tier2.vlm.remote import OllamaVLM
+    from watchwise.tier2.vlm.stub import StubVLM
+    from watchwise.warmup import ModelWarmer
+
+    state, client = fake_llm
+    state.models = ["qwen3-vl:2b"]
+    warmer = ModelWarmer(OllamaVLM("qwen3-vl:2b", "http://fake-llm", client=client), refresh_s=0.02)
+    await warmer.start()
+    await asyncio.sleep(0.15)
+    await warmer.stop()
+    touched = len(state.requests)
+    assert touched >= 3
+    await asyncio.sleep(0.05)
+    assert len(state.requests) == touched
+
+    nothing_to_load = ModelWarmer(StubVLM(), refresh_s=0.01)
+    await nothing_to_load.start()
+    await asyncio.sleep(0.03)
+    assert nothing_to_load.status == {} and nothing_to_load._task.done()
+    await nothing_to_load.stop()
+
+
+@pytest.mark.parametrize(
+    "keep_alive, every",
+    [("30m", 900), ("1h30m", 2700), ("300", 150), (None, 150), ("10s", 30), ("-1", None), ("0", None), ("soon", 150)],
+)
+def test_the_screener_is_touched_well_before_ollama_would_unload_it(keep_alive, every):
+    from watchwise.warmup import refresh_interval
+
+    assert refresh_interval(keep_alive) == every
 
 
 # ---------------------------------------------------------------- Anthropic

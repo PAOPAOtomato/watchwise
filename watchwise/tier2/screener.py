@@ -46,6 +46,13 @@ class Screener:
         exactly when the gate resolved the alert without any model call --
         that pairing is what the cost funnel counts.
         """
+        gate_result = self.check_gate(ctx)
+        if not gate_result.passed_through:
+            return gate_result, None
+        return gate_result, await self.screen_frames(ctx)
+
+    def check_gate(self, ctx: AlertContext) -> GateResult:
+        """The free, model-free half of screening."""
         gate_result = self.gate.evaluate(ctx)
         if not gate_result.passed_through:
             self.stats["gated"] += 1
@@ -55,14 +62,16 @@ class Screener:
                 gate_result.rule,
                 gate_result.reason,
             )
-            return gate_result, None
+        return gate_result
 
+    async def screen_frames(self, ctx: AlertContext) -> ScreenResult:
+        """The model half, for an alert the gate let through."""
         extra = self._memory_context(ctx)
         async with self._sem:
             frames = await self.sampler.for_alert(ctx, self.settings.frames)
             if not frames:
                 self.stats["errors"] += 1
-                return gate_result, ScreenResult(
+                return ScreenResult(
                     verdict=Verdict.UNCERTAIN,
                     confidence=0.0,
                     reason="no frames could be retrieved from NVR for this segment",
@@ -77,7 +86,7 @@ class Screener:
         self.stats["screened"] += 1
         if result.error:
             self.stats["errors"] += 1
-        return gate_result, result
+        return result
 
     def _memory_context(self, ctx: AlertContext) -> str:
         """Give the VLM the recurring-mistake context a human reviewer has.
