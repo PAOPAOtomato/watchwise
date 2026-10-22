@@ -386,7 +386,9 @@ async def test_anthropic_request_shape_and_tool_use_parsing(monkeypatch):
     first = captured[0]
     body = first["body"]
     assert first["path"].endswith("/v1/messages")
-    assert first["headers"]["x-api-key"] == "test-key"
+    # anthropic 1.x sends the key as x-api-key; 2.x as a bearer token.
+    headers = first["headers"]
+    assert headers.get("x-api-key") == "test-key" or headers.get("authorization") == "Bearer test-key"
     assert "server-side-fallback-2026-07-01" in first["headers"]["anthropic-beta"]
     assert body["fallbacks"] == "default"
     assert body["cache_control"] == {"type": "ephemeral"}
