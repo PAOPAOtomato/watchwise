@@ -33,7 +33,7 @@ models:
     base_url: ${OLLAMA_URL:-http://localhost:11434}
     model: qwen3-vl:4b
     context_window: 8192 # Ollama num_ctx; too small silently truncates prompts
-    max_tokens: 1024
+    max_tokens: 1024 # output cap, thinking included; also the screener's cap
     timeout_s: 300
     keep_alive: 30m
   # cloud:
@@ -55,14 +55,16 @@ roles:
   chat: local # conversation (Ask Watchwise)
   # chat_escalation: cloud
 
-# Tier-2 tuning. The model comes from roles.screener.
+# Tier-2 tuning. The model, and its output cap (max_tokens), come from
+# roles.screener.
 vlm:
   frames: 2 # frames sampled per alert
   max_image_edge: 640
   jpeg_quality: 70
   timeout_s: 60
-  max_tokens: 512
   max_concurrency: 2 # so N cameras cannot stampede one GPU
+  # max_tokens: 1024  # only to override the screener model's own max_tokens;
+  #                   # thinking models need about 1000 before they answer
 
 # Tier-3 investigation.
 agent:

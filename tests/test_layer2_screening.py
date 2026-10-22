@@ -15,7 +15,7 @@ from watchwise.tier2 import prompts
 from watchwise.tier2.gate import ScreeningGate
 from watchwise.tier2.sampling import FrameSampler, sample_timestamps
 from watchwise.tier2.screener import Screener
-from watchwise.tier2.vlm.base import VLMBackend, parse_screen_reply
+from watchwise.tier2.vlm.base import VLMBackend, VLMReply, parse_screen_reply
 from watchwise.tier2.vlm.stub import StubVLM
 from watchwise.types import Frame, Verdict
 from tests.conftest import DAY_TS, NIGHT_TS, make_alert
@@ -190,6 +190,72 @@ async def test_backend_error_becomes_uncertain_not_an_exception():
     assert result.verdict is Verdict.UNCERTAIN
     assert result.error == "model offline"
     assert result.backend == "boom"
+
+
+class Raising(VLMBackend):
+    name = "raising"
+
+    def __init__(self, exc: Exception):
+        super().__init__("m")
+        self.exc = exc
+
+    async def infer(self, frames, prompt, system):
+        raise self.exc
+
+
+async def test_an_exception_without_a_message_is_still_an_error():
+    """B-010: httpx's ReadTimeout has an empty message, so a timeout used to
+    look like success (``error == ""``) and `check` printed [ok]."""
+    import httpx
+
+    timeout = await Raising(httpx.ReadTimeout("")).screen([], "p", "s")
+    assert (timeout.verdict, timeout.confidence, timeout.error) == (Verdict.UNCERTAIN, 0.0, "timeout")
+    assert "did not answer in time (ReadTimeout)" in timeout.reason
+
+    try:  # a provider that re-raises a timeout as its own error keeps the cause
+        try:
+            raise httpx.ReadTimeout("")
+        except httpx.ReadTimeout as exc:
+            raise RuntimeError("cannot reach Ollama") from exc
+    except RuntimeError as wrapped:
+        assert (await Raising(wrapped).screen([], "p", "s")).error == "timeout"
+
+    bare = await Raising(RuntimeError()).screen([], "p", "s")
+    assert bare.error == "RuntimeError" and bare.reason == "screening backend error: RuntimeError"
+
+
+class Replying(VLMBackend):
+    name = "replying"
+
+    def __init__(self, reply):
+        super().__init__("m")
+        self.reply = reply
+
+    async def infer(self, frames, prompt, system):
+        return self.reply
+
+
+async def test_no_usable_reply_is_an_error_but_a_complete_answer_is_kept():
+    empty = await Replying("").screen([], "p", "s")
+    assert (empty.verdict, empty.error) == (Verdict.UNCERTAIN, "empty_reply")
+
+    cut = await Replying(VLMReply("", truncated=True, max_tokens=256, thinking=True)).screen([], "p", "s")
+    assert (cut.verdict, cut.error) == (Verdict.UNCERTAIN, "truncated")
+    assert "256-token output cap while it was still thinking" in cut.reason
+    half = await Replying(VLMReply('{"verdict": "ben', truncated=True, max_tokens=64)).screen([], "p", "s")
+    assert half.error == "truncated" and half.reason.endswith("64-token output cap mid-answer")
+
+    # Ollama's JSON mode can pad a finished answer with whitespace up to the
+    # cap: the reply is "truncated", but the verdict in it is complete.
+    padded = VLMReply('{"verdict": "benign", "confidence": 0.9, "reason": "cat"}\n\n\n', truncated=True)
+    kept = await Replying(padded).screen([], "p", "s")
+    assert (kept.verdict, kept.confidence, kept.error) == (Verdict.BENIGN, 0.9, None)
+
+
+def test_parse_ignores_inline_thinking():
+    raw = '<think>Is {that} a cat? It has a tail.</think>{"verdict":"benign","confidence":0.8,"reason":"cat"}'
+    assert parse_screen_reply(raw).verdict is Verdict.BENIGN
+    assert parse_screen_reply("<think>still deciding {").error == "empty_reply"
 
 
 async def test_stub_vlm_is_deterministic_and_reads_the_prompt():

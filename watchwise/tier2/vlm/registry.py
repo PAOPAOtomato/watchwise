@@ -22,6 +22,7 @@ def build_vlm(settings: VLMSettings) -> VLMBackend:
                 base_url=settings.base_url,
                 api_key_env=settings.api_key_env,
                 timeout_s=settings.timeout_s,
+                max_tokens=settings.max_tokens,
                 effort=settings.effort,
                 refusal_fallback=settings.refusal_fallback,
             )

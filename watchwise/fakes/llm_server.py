@@ -7,10 +7,13 @@ status codes and response parsing.
 Tests queue replies (``state.replies``) and inspect what was sent
 (``state.requests``). A reply is a dict with any of ``content``,
 ``tool_calls``, ``thinking``, ``finish_reason``; the server wraps it in the
-dialect the client used.
+dialect the client used. ``tokens`` makes it a thinking model that needs that
+many output tokens: under a smaller cap in the request, it is cut off while
+still thinking, with no answer, the way qwen3-vl is.
 
     POST /v1/chat/completions   GET /v1/models      (OpenAI-compatible)
     POST /api/chat              GET /api/tags       (Ollama native)
+    POST /api/generate                              (Ollama native, the screener's)
 """
 
 from __future__ import annotations
@@ -22,6 +25,19 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 FINAL = {"content": json.dumps({"verdict": "benign", "confidence": 0.9, "conclusion": "fake final"})}
+
+
+def capped(reply: dict[str, Any], cap: Any) -> dict[str, Any]:
+    """The reply as sent under the request's output cap."""
+    needed = reply.get("tokens")
+    if not needed or not cap or int(cap) >= int(needed):
+        return reply
+    return {
+        "content": "",
+        "thinking": reply.get("thinking") or "Let me look at the frame first.",
+        "finish_reason": "length",
+        "tokens": int(cap),
+    }
 
 
 class FakeLLMState:
@@ -67,7 +83,7 @@ def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMS
                     },
                     status_code=400,
                 )
-        reply = state.next_reply()
+        reply = capped(state.next_reply(), body.get("max_completion_tokens") or body.get("max_tokens"))
         message: dict[str, Any] = {"role": "assistant", "content": reply.get("content", "")}
         if reply.get("tool_calls"):
             message["tool_calls"] = [
@@ -92,7 +108,7 @@ def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMS
                 "object": "chat.completion",
                 "model": body.get("model", "fake-model"),
                 "choices": [{"index": 0, "message": message, "finish_reason": finish}],
-                "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+                "usage": {"prompt_tokens": 11, "completion_tokens": reply.get("tokens", 7)},
             }
         )
 
@@ -107,7 +123,7 @@ def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMS
             return JSONResponse({"error": f"model '{body.get('model')}' not found"}, status_code=404)
         if state.status != 200:
             return JSONResponse({"error": "fake failure"}, status_code=state.status)
-        reply = state.next_reply()
+        reply = capped(state.next_reply(), (body.get("options") or {}).get("num_predict"))
         message: dict[str, Any] = {"role": "assistant", "content": reply.get("content", "")}
         if reply.get("tool_calls"):
             message["tool_calls"] = [
@@ -123,9 +139,29 @@ def build_fake_llm(state: FakeLLMState | None = None) -> tuple[FastAPI, FakeLLMS
                 "done": True,
                 "done_reason": reply.get("finish_reason", "stop"),
                 "prompt_eval_count": 13,
-                "eval_count": 5,
+                "eval_count": reply.get("tokens", 5),
             }
         )
+
+    @app.post("/api/generate")
+    async def ollama_generate(request: Request) -> JSONResponse:
+        body = await record(request)
+        if body.get("model") not in state.models:
+            return JSONResponse({"error": f"model '{body.get('model')}' not found"}, status_code=404)
+        if state.status != 200:
+            return JSONResponse({"error": "fake failure"}, status_code=state.status)
+        reply = capped(state.next_reply(), (body.get("options") or {}).get("num_predict"))
+        out: dict[str, Any] = {
+            "model": body["model"],
+            "response": reply.get("content", ""),
+            "done": True,
+            "done_reason": reply.get("finish_reason", "stop"),
+            "prompt_eval_count": 13,
+            "eval_count": reply.get("tokens", 5),
+        }
+        if reply.get("thinking"):
+            out["thinking"] = reply["thinking"]
+        return JSONResponse(out)
 
     @app.get("/api/tags")
     async def tags() -> dict[str, Any]:

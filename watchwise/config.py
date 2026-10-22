@@ -114,8 +114,9 @@ class RolesSettings(BaseModel):
 
 
 class VLMSettings(BaseModel):
-    """Tier-2 screening. ``roles.screener`` overrides the model fields here;
-    the tuning fields (frames, image size, concurrency) always apply."""
+    """Tier-2 screening. ``roles.screener`` overrides the model fields here,
+    including the output cap; the tuning fields (frames, image size, timeout,
+    concurrency) always apply."""
 
     backend: Provider = "stub"
     model: str = "stub-vlm"
@@ -127,7 +128,10 @@ class VLMSettings(BaseModel):
     jpeg_quality: int = 70
     timeout_s: float = 20.0
     temperature: float = 0.0
-    max_tokens: int = 512
+    # Output cap. With roles.screener, the endpoint's max_tokens is used and
+    # this applies only if set explicitly. Thinking models (the default
+    # qwen3-vl tags) spend 400-700 tokens reasoning before the JSON verdict.
+    max_tokens: int = 1024
     # Concurrency cap so N cameras cannot stampede one GPU.
     max_concurrency: int = 2
     context_window: int | None = None
@@ -269,23 +273,36 @@ class WatchwiseConfig(BaseModel):
         return self.models.get(name) if name else None
 
     def screener_settings(self) -> VLMSettings:
-        """Tier-2 settings with ``roles.screener`` applied on top of ``vlm``."""
+        """Tier-2 settings with ``roles.screener`` applied on top of ``vlm``.
+
+        The output cap comes from the endpoint, sized for its model, unless
+        ``vlm.max_tokens`` is set explicitly. (It used to be a fixed 512, or
+        256 on the CPU profiles, which a thinking model fills before it
+        answers.)
+        """
         ep = self.endpoint("screener")
         if ep is None:
             return self.vlm
-        return self.vlm.model_copy(
-            update={
-                "backend": ep.provider,
-                "model": ep.model,
-                "base_url": ep.base_url,
-                "api_key_env": ep.api_key_env,
-                "temperature": ep.temperature,
-                "context_window": ep.context_window,
-                "keep_alive": ep.keep_alive,
-                "effort": ep.effort,
-                "refusal_fallback": ep.refusal_fallback,
-            }
-        )
+        update: dict[str, Any] = {
+            "backend": ep.provider,
+            "model": ep.model,
+            "base_url": ep.base_url,
+            "api_key_env": ep.api_key_env,
+            "temperature": ep.temperature,
+            "context_window": ep.context_window,
+            "keep_alive": ep.keep_alive,
+            "effort": ep.effort,
+            "refusal_fallback": ep.refusal_fallback,
+        }
+        if "max_tokens" not in self.vlm.model_fields_set:
+            update["max_tokens"] = ep.max_tokens
+        return self.vlm.model_copy(update=update)
+
+    def screener_max_tokens_key(self) -> str:
+        """The config key that sets the screener's output cap."""
+        if self.endpoint("screener") is None or "max_tokens" in self.vlm.model_fields_set:
+            return "vlm.max_tokens"
+        return f"models.{self.roles.screener}.max_tokens"
 
     def investigator_backend(self) -> str:
         """Resolve ``agent.backend: auto`` to a concrete backend name."""

@@ -17,7 +17,7 @@ import httpx
 
 from watchwise.llm.base import openai_url
 from watchwise.llm.openai_compat import RequestTuning, error_message
-from watchwise.tier2.vlm.base import VLMBackend
+from watchwise.tier2.vlm.base import VLMBackend, VLMReply
 from watchwise.types import Frame
 
 logger = logging.getLogger(__name__)
@@ -35,9 +35,10 @@ class OllamaVLM(VLMBackend):
         *,
         timeout_s: float = 20.0,
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         context_window: int | None = None,
         keep_alive: str | None = None,
+        client: httpx.AsyncClient | None = None,
     ):
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
@@ -45,12 +46,14 @@ class OllamaVLM(VLMBackend):
         self.max_tokens = max_tokens
         self.context_window = context_window
         self.keep_alive = keep_alive
-        self._client = httpx.AsyncClient(timeout=timeout_s)
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=timeout_s)
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()
 
-    async def infer(self, frames: list[Frame], prompt: str, system: str) -> str:
+    async def infer(self, frames: list[Frame], prompt: str, system: str) -> VLMReply:
         images = [base64.b64encode(f.jpeg).decode("ascii") for f in frames]
         options: dict[str, Any] = {"temperature": self.temperature, "num_predict": self.max_tokens}
         if self.context_window:
@@ -67,8 +70,22 @@ class OllamaVLM(VLMBackend):
         if self.keep_alive:
             body["keep_alive"] = self.keep_alive
         r = await self._client.post(f"{self.base_url}/api/generate", json=body)
+        if r.status_code == 404:
+            raise RuntimeError(
+                f"model {self.model} is not on the Ollama server at {self.base_url}; "
+                f"run: ollama pull {self.model}"
+            )
         r.raise_for_status()
-        return str(r.json().get("response", ""))
+        data = r.json()
+        text = str(data.get("response") or "")
+        return VLMReply(
+            text,
+            truncated=data.get("done_reason") == "length",
+            max_tokens=self.max_tokens,
+            input_tokens=int(data.get("prompt_eval_count") or 0),
+            output_tokens=int(data.get("eval_count") or 0),
+            thinking=bool(data.get("thinking")) or "<think>" in text.lower(),
+        )
 
 
 class OpenAICompatVLM(VLMBackend):
@@ -88,7 +105,7 @@ class OpenAICompatVLM(VLMBackend):
         api_key_env: str | None = None,
         timeout_s: float = 20.0,
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         effort: str | None = None,
         client: httpx.AsyncClient | None = None,
     ):
@@ -112,7 +129,7 @@ class OpenAICompatVLM(VLMBackend):
         if self._owns_client:
             await self._client.aclose()
 
-    async def infer(self, frames: list[Frame], prompt: str, system: str) -> str:
+    async def infer(self, frames: list[Frame], prompt: str, system: str) -> VLMReply:
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         for f in frames:
             b64 = base64.b64encode(f.jpeg).decode("ascii")
@@ -141,4 +158,23 @@ class OpenAICompatVLM(VLMBackend):
         if r.status_code >= 400:
             raise RuntimeError(f"HTTP {r.status_code}: {error_message(r)}")
         data = r.json()
-        return str(data["choices"][0]["message"]["content"])
+        choice = data["choices"][0]
+        message = choice.get("message") or {}
+        # content is null when a reasoning model spent the whole cap thinking.
+        text = message.get("content") or ""
+        if isinstance(text, list):  # some servers return content parts
+            text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
+        text = str(text)
+        usage = data.get("usage") or {}
+        reasoning_tokens = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+        return VLMReply(
+            text,
+            truncated=choice.get("finish_reason") == "length",
+            max_tokens=self.max_tokens,
+            input_tokens=int(usage.get("prompt_tokens") or 0),
+            output_tokens=int(usage.get("completion_tokens") or 0),
+            thinking=bool(
+                message.get("reasoning_content") or message.get("reasoning") or reasoning_tokens
+            )
+            or "<think>" in text.lower(),
+        )

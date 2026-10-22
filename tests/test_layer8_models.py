@@ -294,6 +294,65 @@ async def test_openai_compat_screener_adapts_too(fake_llm):
     assert final["response_format"] == {"type": "json_object"}
 
 
+THINKING_VERDICT = {
+    "content": '{"verdict": "benign", "confidence": 0.9, "reason": "a cat on the path"}',
+    "thinking": "The frame shows a small animal near the door...",
+    "tokens": 700,  # what qwen3-vl spends: 430-660 measured on the L4, mostly thinking
+}
+
+
+async def test_a_thinking_screener_answers_within_its_models_cap(fake_llm):
+    """B-011: the screener used a fixed 512 (256 on CPU profiles), which a
+    thinking model fills before it answers, so every alert came back empty."""
+    from watchwise.tier2.vlm.remote import OllamaVLM
+
+    state, client = fake_llm
+    state.models = ["qwen3-vl:2b"]
+    state.replies = [dict(THINKING_VERDICT), dict(THINKING_VERDICT)]
+    cfg = WatchwiseConfig.model_validate(
+        {
+            "models": {"local": {"provider": "ollama", "model": "qwen3-vl:2b", "max_tokens": 1024}},
+            "roles": {"screener": "local"},
+            "vlm": {"frames": 1, "timeout_s": 120},
+        }
+    )
+    settings = cfg.screener_settings()
+    frame = Frame(camera="c", timestamp=0.0, jpeg=b"jpg")
+
+    vlm = OllamaVLM(settings.model, "http://fake-llm", max_tokens=settings.max_tokens, client=client)
+    result = await vlm.screen([frame], "prompt", "system")
+    assert (result.verdict, result.confidence, result.error) == (Verdict.BENIGN, 0.9, None)
+    assert result.tokens == {"input": 13, "output": 700}
+    assert state.requests[0]["options"]["num_predict"] == 1024
+
+    old_cap = OllamaVLM("qwen3-vl:2b", "http://fake-llm", max_tokens=512, client=client)
+    cut = await old_cap.screen([frame], "prompt", "system")
+    assert (cut.verdict, cut.confidence, cut.error) == (Verdict.UNCERTAIN, 0.0, "truncated")
+    assert "cut off at the 512-token output cap while it was still thinking" in cut.reason
+
+
+async def test_a_cut_off_reply_is_reported_by_openai_compatible_screeners_too(fake_llm):
+    from watchwise.tier2.vlm.remote import OpenAICompatVLM
+
+    state, client = fake_llm
+    state.replies = [dict(THINKING_VERDICT)]
+    vlm = OpenAICompatVLM("fake-model", "http://fake-llm", client=client, max_tokens=400)
+    result = await vlm.screen([Frame(camera="c", timestamp=0.0, jpeg=b"jpg")], "prompt", "system")
+    assert (result.verdict, result.error) == (Verdict.UNCERTAIN, "truncated")
+    assert "400-token output cap while it was still thinking" in result.reason
+    assert result.tokens["output"] == 400
+
+
+async def test_a_screener_model_that_is_not_pulled_says_how_to_fix_it(fake_llm):
+    from watchwise.tier2.vlm.remote import OllamaVLM
+
+    _, client = fake_llm
+    vlm = OllamaVLM("qwen3-vl:8b-instruct", "http://fake-llm", client=client)
+    result = await vlm.screen([Frame(camera="c", timestamp=0.0, jpeg=b"jpg")], "prompt", "system")
+    assert result.verdict is Verdict.UNCERTAIN
+    assert "ollama pull qwen3-vl:8b-instruct" in result.error
+
+
 # ---------------------------------------------------------------- Ollama native
 
 
@@ -461,6 +520,22 @@ def test_screener_role_overrides_the_vlm_model_but_keeps_tuning():
     screening = cfg.screener_settings()
     assert (screening.backend, screening.model, screening.base_url) == ("ollama", "qwen3-vl:2b", "http://o:11434")
     assert (screening.frames, screening.max_image_edge, screening.context_window) == (1, 448, 4096)
+
+
+def test_the_screener_cap_comes_from_its_model_unless_set_on_purpose():
+    models = {"local": {"provider": "ollama", "model": "qwen3-vl:2b", "max_tokens": 1500}}
+    cfg = WatchwiseConfig.model_validate({"models": models, "roles": {"screener": "local"}, "vlm": {"frames": 1}})
+    assert cfg.screener_settings().max_tokens == 1500
+    assert cfg.screener_max_tokens_key() == "models.local.max_tokens"
+
+    pinned = WatchwiseConfig.model_validate(
+        {"models": models, "roles": {"screener": "local"}, "vlm": {"max_tokens": 600}}
+    )
+    assert pinned.screener_settings().max_tokens == 600
+    assert pinned.screener_max_tokens_key() == "vlm.max_tokens"
+
+    legacy = WatchwiseConfig.model_validate({"vlm": {"backend": "ollama", "model": "qwen3-vl:2b"}})
+    assert legacy.screener_settings().max_tokens == 1024
 
 
 def test_old_configs_keep_their_behaviour():

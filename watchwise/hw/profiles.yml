@@ -7,6 +7,10 @@
 # measures what your machine actually does with them. Local tags are Ollama
 # library names; one vision+tools model (qwen3-vl) serves every local role on
 # small machines so only one model has to stay loaded.
+#
+# A model's max_tokens is also the screener's output cap. The default qwen3-vl
+# tags think before they answer (400-700 tokens measured on qwen3-vl:8b), so
+# keep it at 1024 or more; a smaller cap returns no verdict at all.
 version: 1
 
 # Profiles tried in this order when choosing automatically. The first whose
@@ -119,7 +123,7 @@ profiles:
         keep_alive: 30m
     roles: {screener: local, investigator: local, chat: local}
     tuning:
-      vlm: {frames: 1, max_image_edge: 448, max_concurrency: 1, timeout_s: 180, max_tokens: 256}
+      vlm: {frames: 1, max_image_edge: 448, max_concurrency: 1, timeout_s: 180}
       agent: {max_concurrency: 1, max_iterations: 4, timeout_s: 900}
     compose: [ollama]
     leaves_machine: nothing
@@ -140,12 +144,12 @@ profiles:
         base_url: ${OLLAMA_URL:-http://localhost:11434}
         model: qwen3-vl:2b
         context_window: 4096
-        max_tokens: 512
+        max_tokens: 1024
         timeout_s: 300
         keep_alive: 30m
     roles: {screener: local, investigator: "@cloud", chat: "@cloud"}
     tuning:
-      vlm: {frames: 1, max_image_edge: 448, max_concurrency: 1, timeout_s: 120, max_tokens: 256}
+      vlm: {frames: 1, max_image_edge: 448, max_concurrency: 1, timeout_s: 120}
       agent: {max_concurrency: 2, timeout_s: 300}
     compose: [ollama]
     leaves_machine: text to your cloud provider (no images)

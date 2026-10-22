@@ -358,6 +358,80 @@ def test_cli_check_with_stub_models(tmp_path, capsys):
     assert out.count("[ok  ]") == 3
 
 
+def test_cli_check_json_prints_only_json(tmp_path, capsys):
+    """TD-4: the header line used to precede the JSON on stdout."""
+    path = tmp_path / "watchwise.yml"
+    path.write_text("models: {stub: {provider: stub}}\nroles: {screener: stub, investigator: stub, chat: stub}\n")
+    assert cli.main(["check", "--config", str(path), "--json"]) == 0
+    captured = capsys.readouterr()
+    assert [r["status"] for r in json.loads(captured.out)] == ["ok", "ok", "ok"]
+    assert "Checking models from" in captured.err
+
+
+@pytest.fixture
+def local_screener(tmp_path):
+    path = tmp_path / "watchwise.yml"
+    path.write_text(
+        "models: {local: {provider: ollama, model: qwen3-vl:2b, max_tokens: 512}}\n"
+        "roles: {screener: local}\n"
+        "vlm: {timeout_s: 60}\n"
+    )
+    return path
+
+
+def screener_answering(monkeypatch, behaviour):
+    from watchwise.tier2.vlm.base import VLMBackend
+
+    class Scripted(VLMBackend):
+        name = "ollama"
+
+        async def infer(self, frames, prompt, system):
+            return behaviour()
+
+    monkeypatch.setattr("watchwise.tier2.vlm.registry.build_vlm", lambda settings: Scripted(settings.model))
+
+
+def test_cli_check_fails_on_a_screener_timeout(local_screener, monkeypatch, capsys):
+    """B-010: a timeout used to print [ok]."""
+    import httpx
+
+    def time_out():
+        raise httpx.ReadTimeout("")
+
+    screener_answering(monkeypatch, time_out)
+    assert cli.main(["check", "--config", str(local_screener), "--role", "screener"]) == 1
+    out = capsys.readouterr().out
+    assert "[fail] screener" in out and "no reply within vlm.timeout_s = 60s" in out
+
+
+def test_cli_check_warns_when_the_screener_is_cut_off(local_screener, monkeypatch, capsys):
+    """B-011 seen from the CLI: the model answers, but never with a verdict."""
+    from watchwise.tier2.vlm.base import VLMReply
+
+    screener_answering(
+        monkeypatch, lambda: VLMReply("", truncated=True, max_tokens=512, output_tokens=512, thinking=True)
+    )
+    assert cli.main(["check", "--config", str(local_screener), "--role", "screener"]) == 0
+    out = capsys.readouterr().out
+    assert "[warn] screener" in out
+    assert "512-token output cap while it was still thinking" in out
+    assert "Raise models.local.max_tokens" in out
+
+    screener_answering(monkeypatch, lambda: "I think it is a cat")
+    cli.main(["check", "--config", str(local_screener), "--role", "screener"])
+    assert "[warn] screener" in capsys.readouterr().out
+
+
+def test_no_profile_starves_a_thinking_screener(catalog):
+    """Every shipped screener has room for qwen3-vl's reasoning (B-011)."""
+    for profile in catalog.profiles.values():
+        models, roles = resolve(profile, _fake_cloud() if profile.needs_cloud else None)
+        text = render_config(profile, build_config_dict(profile, models, roles))
+        cfg = WatchwiseConfig.model_validate(interpolate_env(yaml.safe_load(text), env={}))
+        if cfg.screener_settings().backend != "stub":
+            assert cfg.screener_settings().max_tokens >= 1024, profile.name
+
+
 def test_cli_demo_runs_the_simulated_day(capsys):
     assert cli.main(["demo"]) == 0
     out = capsys.readouterr().out
@@ -392,6 +466,7 @@ def test_the_annotated_reference_config_loads():
     )
     assert cfg.endpoint("investigator").provider == "ollama"
     assert cfg.investigator_backend() == "tools"
+    assert cfg.screener_settings().max_tokens >= 1024
 
 
 def test_synthetic_check_frame_is_a_jpeg():

@@ -356,6 +356,7 @@ async def _check_screener(config: Any) -> CheckResult:
     import time
 
     from watchwise.tier2 import prompts
+    from watchwise.tier2.vlm.base import REPLY_PROBLEMS, TIMEOUT, TRUNCATED
     from watchwise.tier2.vlm.registry import build_vlm
     from watchwise.types import AlertContext, Frame
 
@@ -372,6 +373,22 @@ async def _check_screener(config: Any) -> CheckResult:
         result = await vlm.screen([frame], prompts.build_prompt(ctx, 1), prompts.SYSTEM)
     finally:
         await vlm.aclose()
+    if result.error == TIMEOUT:
+        detail = (
+            f"no reply within vlm.timeout_s = {settings.timeout_s:g}s. Loading a model for the "
+            "first time can take longer: run check again, and raise vlm.timeout_s if it persists"
+        )
+        return CheckResult("screener", target, "fail", detail, result.latency_ms)
+    if result.error in REPLY_PROBLEMS:
+        # It answered, but every real alert would screen as "uncertain" and
+        # escalate to the investigator.
+        detail = result.reason[:200]
+        if result.error == TRUNCATED:
+            detail += (
+                f". Raise {config.screener_max_tokens_key()} (thinking models need about 1000), "
+                "or use a non-thinking model"
+            )
+        return CheckResult("screener", target, "warn", detail, result.latency_ms)
     if result.error:
         detail = result.reason[:300]
         if settings.backend == "ollama" and "connect" in str(result.error).lower():
@@ -381,11 +398,12 @@ async def _check_screener(config: Any) -> CheckResult:
                 f"then run: ollama pull {settings.model}"
             )
         return CheckResult("screener", target, "fail", detail, result.latency_ms)
+    tokens = f", {result.tokens['output']} output tokens" if result.tokens.get("output") else ""
     return CheckResult(
         "screener",
         target,
         "ok",
-        f"answered {result.verdict.value} @ {result.confidence:.2f} (a drawn test image)",
+        f"answered {result.verdict.value} @ {result.confidence:.2f} (a drawn test image{tokens})",
         result.latency_ms,
     )
 
@@ -405,6 +423,13 @@ async def probe_tool_calling(chat: Any) -> tuple[str, str, float]:
     ]
     first = await chat.complete(messages, tools=[tool])
     if not first.tool_calls:
+        if first.stop_reason == "length":
+            return (
+                "warn",
+                f"the reply was cut off at the output cap ({first.usage.output_tokens} tokens) "
+                "before a tool call; raise this model's max_tokens",
+                first.latency_ms,
+            )
         return (
             "warn",
             "replied without calling the tool; tool calling looks unreliable with this model",
@@ -414,6 +439,8 @@ async def probe_tool_calling(chat: Any) -> tuple[str, str, float]:
     second = await chat.complete(messages, tools=[tool])
     latency = first.latency_ms + second.latency_ms
     if not second.content.strip():
+        if second.stop_reason == "length":
+            return "warn", "called the tool, but the answer was cut off at the output cap", latency
         return "warn", "called the tool but gave no final answer", latency
     tokens = first.usage.input_tokens + second.usage.input_tokens
     return "ok", f"tool call + answer ({tokens} input tokens)", latency
@@ -442,7 +469,7 @@ async def _check_chat_role(config: Any, role: str) -> CheckResult:
     try:
         status, detail, latency = await probe_tool_calling(chat)
     except Exception as exc:
-        return CheckResult(role, target, "fail", str(exc)[:300])
+        return CheckResult(role, target, "fail", (str(exc) or type(exc).__name__)[:300])
     finally:
         await chat.aclose()
     return CheckResult(role, target, status, detail, latency)
@@ -464,15 +491,19 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     path = resolve_config_path(args.config)
     config = WatchwiseConfig.load(path)
-    print(f"Checking models from {path or 'built-in defaults'} (profile: {config.profile or '-'})\n")
+    # With --json, stdout carries only the JSON; the header goes to stderr.
+    print(
+        f"Checking models from {path or 'built-in defaults'} (profile: {config.profile or '-'})\n",
+        file=sys.stderr if args.json else sys.stdout,
+    )
     results = asyncio.run(run_checks(config, [args.role] if args.role else None))
+    failed = [r for r in results if r.status == "fail"]
     if args.json:
         print(json.dumps([r.__dict__ for r in results], indent=2))
-    else:
-        for r in results:
-            latency = f"{r.latency_ms / 1000:.1f}s" if r.latency_ms else "-"
-            print(f"  [{r.status:<4}] {r.role:<13} {r.target:<40} {latency:>7}  {r.detail}")
-    failed = [r for r in results if r.status == "fail"]
+        return 1 if failed else 0
+    for r in results:
+        latency = f"{r.latency_ms / 1000:.1f}s" if r.latency_ms else "-"
+        print(f"  [{r.status:<4}] {r.role:<13} {r.target:<40} {latency:>7}  {r.detail}")
     if failed:
         print("\nFix the failures above, then run `watchwise check` again.")
     return 1 if failed else 0

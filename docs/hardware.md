@@ -155,6 +155,9 @@ Notes:
 In `config/watchwise.yml`:
 
 * `vlm.frames: 1` and `vlm.max_image_edge: 448`: fewer and smaller images per alert.
+* The screener's output cap is its model's `max_tokens`. Thinking models (the
+  default `qwen3-vl` tags) reason before they answer, so keep it at 1024 or
+  more: `watchwise check` warns when a reply is cut off before the verdict.
 * `vlm.max_concurrency: 1`: one screening at a time; bursts queue instead.
 * `agent.max_iterations: 4`: shorter investigations.
 * `gate.never_screen_labels: [cat, dog]`: never spend a model call on these.

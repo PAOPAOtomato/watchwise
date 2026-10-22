@@ -230,8 +230,10 @@ Desktop, Claude Code, Cursor or any MCP client.
 * A learned rule could in principle hide a genuine event with the same
   signature. Mitigations: the corrections floor, trust scores, age decay, and
   demotion rather than deletion. Thresholds are conservative by default.
-* On a CPU-only machine, local screening takes seconds per alert. Tier 3 is
-  off the alert path, but tier 2 is not.
+* On a CPU-only machine, local screening takes tens of seconds per alert, and
+  a thinking model can run past the screening timeout; the alert then still
+  reaches you, marked uncertain. Tier 3 is off the alert path, but tier 2 is
+  not. `watchwise check --role screener` shows what your machine does.
 
 ## Development
 
