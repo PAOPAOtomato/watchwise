@@ -305,6 +305,27 @@ async def test_repeated_false_alarms_stop_reaching_a_human_after_corrections(sys
     assert graduated.severity is Severity.SUPPRESSED
 
 
+async def test_corrections_from_the_phone_alone_teach_the_gate(system):
+    """B-017: a correction scores only the patterns on the alert's decision
+    (that is all a button press knows). The patterns shown to the screener
+    must be among them, or a new pattern never earns the trust the gate
+    requires and the learning loop never closes outside this file."""
+    alert_kwargs = dict(camera="cam_yard", labels=["cat"], zones=["lawn"])
+    for i in range(3):
+        review_id = f"learn-{i}"
+        await system.pipeline.handle(_alert(review_id, ts=DAY_TS + i * 3600, **alert_kwargs))
+        latest = system.memory_sink.latest(review_id)
+        system.feedback.submit(
+            review_id, "benign", reviewer="telegram:tester",
+            influenced_pattern_ids=list(latest.matched_memory_ids),
+        )
+
+    held = await system.pipeline.handle(_alert("learn-3", ts=DAY_TS + 3 * 3600, **alert_kwargs))
+    assert held.stage is Stage.GATED, "the fourth one must be settled from memory, for free"
+    assert "known false-alarm pattern" in held.rationale
+    assert held.disposition in (Disposition.DOWNGRADED, Disposition.SUPPRESSED)
+
+
 async def test_a_pattern_that_starts_being_wrong_loses_its_authority(system):
     """The safety valve on auto-suppression."""
     alert_kwargs = dict(camera="cam_yard", labels=["person"], zones=["perimeter"])

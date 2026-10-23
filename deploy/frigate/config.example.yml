@@ -48,6 +48,7 @@ cameras:
         - path: rtsp://user:password@192.168.1.10:554/stream1
           roles: [detect, record]
     detect:
+      enabled: true # Frigate leaves object detection off unless enabled
       width: 1280
       height: 720
       fps: 5

@@ -151,6 +151,20 @@ async def test_text_only_mode_sends_no_image(system):
 # ---------------------------------------------------------------- teaching
 
 
+async def test_a_press_too_old_to_answer_still_updates_the_card(system):
+    """B-016: a press made while the service was stopped arrives when it
+    restarts; Telegram then refuses the answer, but the press still counts."""
+    sys_, state = system
+    await sys_.pipeline.handle(night_person())
+    await settle(sys_)
+    state.failures["answerCallbackQuery"] = [
+        (400, "Bad Request: query is too old and response timeout expired or query ID is invalid", None)
+    ]
+    await press(sys_, state, "fb:ok:rev-a")
+    assert sys_.store.query("SELECT COUNT(*) AS n FROM corrections")[0]["n"] == 1
+    assert "Marked expected (1 of 3)" in state.edits[-1]["text"]
+
+
 async def test_expected_becomes_a_correction_and_undo_takes_it_back(system):
     sys_, state = system
     await sys_.pipeline.handle(night_person())

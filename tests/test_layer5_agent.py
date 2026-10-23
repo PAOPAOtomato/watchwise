@@ -419,6 +419,19 @@ def test_investigation_dispositions(policy, verdict, confidence, expected):
     assert decision.disposition is expected
 
 
+def test_an_escalation_gives_its_real_reason(policy):
+    """B-019: an uncertain verdict escalates at any confidence; the text used
+    to claim that 0.75 was below the 0.60 threshold."""
+    unsure = Investigation(id="i", review_id="r", camera="c", verdict=Verdict.UNCERTAIN,
+                           confidence=0.75, conclusion="blurred frames")
+    assert policy.from_investigation(make_alert(), None, unsure).rationale == (
+        "the investigation could not decide. blurred frames"
+    )
+    thin = Investigation(id="i", review_id="r", camera="c", verdict=Verdict.BENIGN,
+                         confidence=0.4, conclusion="thin")
+    assert "0.40, below the 0.60 autonomy threshold" in policy.from_investigation(make_alert(), None, thin).rationale
+
+
 def test_low_confidence_never_auto_resolves(policy):
     """The over-autonomy guard, stated as a property over the whole range."""
     for conf in (0.0, 0.1, 0.3, 0.59):

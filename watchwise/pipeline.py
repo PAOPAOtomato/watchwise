@@ -209,7 +209,8 @@ class Pipeline:
         self._remember(ctx.review_id, scope, decision)
 
         if needs_investigation and self.investigations is not None:
-            pending = (ctx, screen, gate_result.matched_pattern_ids)
+            memory_ids = list(dict.fromkeys([*gate_result.matched_pattern_ids, *screen.memory_ids]))
+            pending = (ctx, screen, memory_ids)
             if ctx.review_id in self._pending:
                 # Already under investigation (this is a re-screen): give
                 # its revision the newer picture rather than start another.

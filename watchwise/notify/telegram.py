@@ -426,19 +426,28 @@ class TelegramBot:
         message = query.get("message") or {}
         chat_id = (message.get("chat") or {}).get("id")
         if chat_id is None or not self.allowed(chat_id):
-            await self.api.answer_callback(query["id"], "Not authorized for this chat.")
+            await self._answer(query, "Not authorized for this chat.")
             return
         parsed = parse_callback(str(query.get("data") or ""))
         if parsed is None:
-            await self.api.answer_callback(query["id"], "Unknown button.")
+            await self._answer(query, "Unknown button.")
             return
         action, review_id, arg = parsed
         user = query.get("from") or {}
         outcome = await self.handler.handle(
             action, review_id, arg=arg, reviewer=f"telegram:{user.get('username') or user.get('id')}"
         )
-        await self.api.answer_callback(query["id"], outcome.toast)
+        await self._answer(query, outcome.toast)
         if outcome.footer is not None or outcome.keyboard is not None:
             await self.notifier.apply(review_id, footer=outcome.footer, keyboard=outcome.keyboard)
         if outcome.reply:
             await self.api.send_message(chat_id, outcome.reply, reply_to=message.get("message_id"))
+
+    async def _answer(self, query: dict[str, Any], text: str) -> None:
+        """Answer a button press. Telegram refuses answers to presses that
+        are too old (made while the service was stopped); the press itself
+        has still been handled, so its card must still be updated."""
+        try:
+            await self.api.answer_callback(query["id"], text)
+        except TelegramError as exc:
+            logger.info("could not answer a button press (%s); handling it anyway", exc)

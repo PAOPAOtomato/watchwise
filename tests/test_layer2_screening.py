@@ -329,6 +329,20 @@ async def test_screener_reports_no_frames_as_uncertain(nvr_client, nvr_state, pa
     assert screen.error == "no_frames"
 
 
+async def test_the_screener_names_the_close_patterns_it_was_shown(nvr_client, patterns):
+    """They shaped the verdict, so a correction of it must score them."""
+    alert = make_alert(camera="cam_drive", labels=["car"], zones=["driveway"])
+    pattern_id = patterns.upsert(
+        kind="false_alarm", signature=alert.signature(), description="headlights on the gate"
+    )
+    gate = ScreeningGate(GateSettings(), patterns)
+    screener = Screener(gate, FrameSampler(nvr_client), StubVLM(), VLMSettings(frames=1), patterns)
+    _, screen = await screener.screen(alert)
+    assert screen.memory_ids == [pattern_id]
+    _, unrelated = await screener.screen(make_alert(review_id="r2", camera="cam_door", labels=["dog"]))
+    assert unrelated.memory_ids == []
+
+
 async def test_screener_injects_memory_context_into_the_prompt(nvr_client, patterns):
     """Patterns too weak for the gate still inform the model."""
     alert = make_alert(camera="cam_drive", labels=["car"], zones=["driveway"])

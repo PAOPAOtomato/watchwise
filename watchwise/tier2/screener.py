@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from watchwise.config import VLMSettings
 from watchwise.memory.long_term import PatternLibrary
@@ -66,7 +67,8 @@ class Screener:
 
     async def screen_frames(self, ctx: AlertContext) -> ScreenResult:
         """The model half, for an alert the gate let through."""
-        extra = self._memory_context(ctx)
+        matches = self._memory_matches(ctx)
+        extra = self._memory_context(ctx, matches)
         async with self._sem:
             frames = await self.sampler.for_alert(ctx, self.settings.frames)
             if not frames:
@@ -86,23 +88,32 @@ class Screener:
         self.stats["screened"] += 1
         if result.error:
             self.stats["errors"] += 1
+        # The patterns close enough that the gate could one day act on them
+        # alone. They shaped this verdict, so a human correction of it scores
+        # them; that is how a new pattern earns the trust the gate requires.
+        threshold = self.gate.settings.memory_suppress_similarity
+        result.memory_ids = [m.pattern_id for m in matches if m.similarity >= threshold]
         return result
 
-    def _memory_context(self, ctx: AlertContext) -> str:
+    def _memory_matches(self, ctx: AlertContext) -> list[Any]:
+        if self.patterns is None:
+            return []
+        return self.patterns.search(
+            " ".join([ctx.camera, *ctx.labels, *ctx.zones]),
+            signature=ctx.signature(),
+            top_k=2,
+            min_similarity=0.5,
+        )
+
+    def _memory_context(self, ctx: AlertContext, matches: list[Any] | None = None) -> str:
         """Give the VLM the recurring-mistake context a human reviewer has.
 
         These are patterns that were *not* strong enough for the gate to
         suppress on. Surfacing them still helps: the model can confirm or
         rule out the known failure mode instead of rediscovering it.
         """
-        if self.patterns is None:
-            return ""
-        matches = self.patterns.search(
-            " ".join([ctx.camera, *ctx.labels, *ctx.zones]),
-            signature=ctx.signature(),
-            top_k=2,
-            min_similarity=0.5,
-        )
+        if matches is None:
+            matches = self._memory_matches(ctx)
         if not matches:
             return ""
         lines = ["Known recurring judgements for this camera and label set:"]

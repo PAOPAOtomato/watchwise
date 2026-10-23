@@ -114,6 +114,7 @@ class DecisionPolicy:
                     rationale=f"tier-2 screening: {screen.reason}",
                     stage=Stage.SCREENED,
                     screen=screen,
+                    matched_memory_ids=list(screen.memory_ids),
                 ),
                 False,
             )
@@ -133,6 +134,7 @@ class DecisionPolicy:
                     rationale=f"tier-2 screening: {screen.reason}",
                     stage=Stage.SCREENED,
                     screen=screen,
+                    matched_memory_ids=list(screen.memory_ids),
                 ),
                 True,
             )
@@ -151,6 +153,7 @@ class DecisionPolicy:
                 ),
                 stage=Stage.SCREENED,
                 screen=screen,
+                matched_memory_ids=list(screen.memory_ids),
             ),
             True,
         )
@@ -176,15 +179,19 @@ class DecisionPolicy:
 
         # 1. Below the human-fallback floor: a human decides, full stop.
         if inv.confidence < s.human_fallback_confidence or inv.verdict is Verdict.UNCERTAIN:
+            if inv.verdict is Verdict.UNCERTAIN:
+                why = "the investigation could not decide"
+            else:
+                why = (
+                    f"investigation reached {inv.verdict.value} at confidence "
+                    f"{inv.confidence:.2f}, below the {s.human_fallback_confidence:.2f} "
+                    "autonomy threshold"
+                )
             return Decision(
                 disposition=Disposition.ESCALATED_HUMAN,
                 severity=Severity.ALERT,
                 confidence=inv.confidence,
-                rationale=(
-                    f"investigation reached {inv.verdict.value} at confidence "
-                    f"{inv.confidence:.2f}, below the {s.human_fallback_confidence:.2f} "
-                    f"autonomy threshold. {inv.conclusion}"
-                ),
+                rationale=f"{why}. {inv.conclusion}",
                 **base,
             )
 

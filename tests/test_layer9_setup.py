@@ -498,3 +498,5 @@ def test_compose_files_parse_and_wire_the_services():
     frigate_cfg = yaml.safe_load((REPO / "deploy" / "frigate" / "config.example.yml").read_text())
     assert frigate_cfg["mqtt"]["host"] == "mqtt"
     assert frigate_cfg["mqtt"]["topic_prefix"] == WatchwiseConfig().mqtt.topic_prefix
+    # Frigate runs no object detection (so it never alerts) unless it is enabled.
+    assert all(camera["detect"]["enabled"] for camera in frigate_cfg["cameras"].values())

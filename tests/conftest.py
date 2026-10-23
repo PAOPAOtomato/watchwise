@@ -29,6 +29,16 @@ NIGHT_TS = time.mktime((2026, 3, 10, 2, 30, 0, 0, 0, -1))
 DAY_TS = time.mktime((2026, 3, 10, 14, 0, 0, 0, 0, -1))
 
 
+@pytest.fixture(autouse=True)
+def _no_developer_dotenv(monkeypatch):
+    """`watchwise` commands load ./.env, which on a developer's machine holds
+    real keys and tokens. Tests must never see them."""
+    from watchwise import cli
+
+    real = cli.load_dotenv
+    monkeypatch.setattr(cli, "load_dotenv", lambda path=None: real(path) if path is not None else [])
+
+
 @pytest.fixture
 def store(tmp_path):
     s = Store(tmp_path / "watchwise.db")

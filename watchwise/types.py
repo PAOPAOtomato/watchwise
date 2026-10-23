@@ -105,6 +105,8 @@ class ScreenResult:
     frames_used: int = 0
     tokens: dict[str, int] = field(default_factory=dict)
     error: str | None = None
+    # Learned patterns the model was shown that a correction should score.
+    memory_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
