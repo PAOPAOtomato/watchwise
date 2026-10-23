@@ -18,6 +18,11 @@ Frigate reports an event when it starts and again when it ends. The second
 report of a review costs a model call only if it shows something the first
 did not: a new object label or zone. Alerts are handled concurrently (the
 screener caps the model calls), but the reports of one review in order.
+
+When Frigate's GenAI summary of a finished event arrives, it is attached to
+every decision on that review from then on: the card says what happened, and
+a suspicious or critical rating raises an event that was downgraded or held
+back. It never lowers one.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ import logging
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from watchwise.decision import DecisionPolicy
@@ -39,6 +44,7 @@ from watchwise.types import (
     AlertContext,
     Decision,
     Investigation,
+    ReviewSummary,
     ScreenResult,
     Stage,
 )
@@ -89,6 +95,8 @@ class Pipeline:
         # review_id -> [lock, users]: one review's reports in arrival order.
         self._reviews: dict[str, list[Any]] = {}
         self._handled: OrderedDict[str, _Handled] = OrderedDict()
+        # review_id -> Frigate's summary of the whole event, once it arrives.
+        self._summaries: OrderedDict[str, ReviewSummary] = OrderedDict()
         # review_id -> what tier 2 concluded, so the tier-3 callback can
         # produce a revised decision with the full picture.
         self._pending: dict[str, tuple[AlertContext, ScreenResult | None, list[str]]] = {}
@@ -103,6 +111,8 @@ class Pipeline:
             "provisional_dispatches": 0,
             "first_dispatches": 0,
             "first_dispatch_ms_total": 0.0,
+            "summaries": 0,
+            "raised_by_summary": 0,
         }
 
     # ---------------- lifecycle ----------------
@@ -162,6 +172,26 @@ class Pipeline:
                 self._reviews.pop(ctx.review_id, None)
 
     async def _handle(self, ctx: AlertContext) -> Decision:
+        if ctx.summary is not None and ctx.raw.get("type") == "genai":
+            return await self._summarized(ctx)
+        return await self._handle_report(ctx)
+
+    async def _summarized(self, ctx: AlertContext) -> Decision:
+        """Frigate's summary of the event, after it ended (D-045)."""
+        assert ctx.summary is not None
+        self._summaries[ctx.review_id] = ctx.summary
+        self._summaries.move_to_end(ctx.review_id)
+        while len(self._summaries) > REMEMBERED_REVIEWS:
+            self._summaries.popitem(last=False)
+        self.metrics["summaries"] += 1
+        seen = self._handled.get(ctx.review_id)
+        if seen is None:
+            # Not seen before (Watchwise started mid-event): judge it as a
+            # first report; the summary joins that decision.
+            return await self._handle_report(ctx)
+        return await self._decide(ctx, replace(seen.decision, decided_at=time.time()))
+
+    async def _handle_report(self, ctx: AlertContext) -> Decision:
         started = time.perf_counter()
         record = ctx.to_dict()
         record["signature"] = ctx.signature()
@@ -191,10 +221,8 @@ class Pipeline:
         if not gate_result.passed_through:
             # Resolved by the gate: no model was called at all.
             self.metrics["gate_resolved"] += 1
-            decision = self.policy.from_gate(ctx, gate_result)
             self.store.upsert_alert(record, Stage.GATED.value)
-            self.store.record_decision(decision.to_dict())
-            await self._dispatch(ctx, decision, first=first)
+            decision = await self._decide(ctx, self.policy.from_gate(ctx, gate_result), first=first)
             self._remember(ctx.review_id, scope, decision)
             return decision
 
@@ -204,8 +232,7 @@ class Pipeline:
         self.store.upsert_alert(record, Stage.SCREENED.value)
 
         decision, needs_investigation = self.policy.from_screening(ctx, screen)
-        self.store.record_decision(decision.to_dict())
-        await self._dispatch(ctx, decision, first=first and not provisional_sent)
+        decision = await self._decide(ctx, decision, first=first and not provisional_sent)
         self._remember(ctx.review_id, scope, decision)
 
         if needs_investigation and self.investigations is not None:
@@ -244,10 +271,8 @@ class Pipeline:
             if budget is not None:
                 done, _ = await asyncio.wait({work}, timeout=max(budget, MIN_PROVISIONAL_WAIT_S))
                 if not done:
-                    provisional = self.policy.provisional(ctx)
-                    self.store.record_decision(provisional.to_dict())
                     self.metrics["provisional_dispatches"] += 1
-                    await self._dispatch(ctx, provisional, first=True)
+                    await self._decide(ctx, self.policy.provisional(ctx), first=True)
                     sent = True
             return await work, sent
         finally:
@@ -275,8 +300,27 @@ class Pipeline:
         decision = self.policy.from_investigation(
             ctx, screen, inv, matched_memory_ids=memory_ids
         )
+        await self._decide(ctx, decision)
+
+    async def _decide(self, ctx: AlertContext, decision: Decision, *, first: bool = False) -> Decision:
+        """Record and dispatch a decision, with Frigate's summary of the event
+        attached once it is known (which may raise it, never lower it)."""
+        summary = self._summaries.get(ctx.review_id)
+        if summary is not None:
+            raised = self.policy.with_summary(decision, summary)
+            if raised.stage is Stage.SUMMARIZED and decision.stage is not Stage.SUMMARIZED:
+                self.metrics["raised_by_summary"] += 1
+                logger.info(
+                    "Frigate's review of %s rated it threat level %d: raising it to an alert",
+                    ctx.review_id, summary.threat_level,
+                )
+            decision = raised
         self.store.record_decision(decision.to_dict())
-        await self._dispatch(ctx, decision)
+        entry = self._handled.get(ctx.review_id)
+        if entry is not None:
+            entry.decision = decision
+        await self._dispatch(ctx, decision, first=first)
+        return decision
 
     async def _dispatch(self, ctx: AlertContext, decision: Decision, *, first: bool = False) -> None:
         if first:
@@ -333,4 +377,6 @@ class Pipeline:
             "provisional_dispatches": self.metrics["provisional_dispatches"],
             "rescreens": self.metrics["rescreens"],
             "reports_without_model": self.metrics["reports_without_model"],
+            "summaries": self.metrics["summaries"],
+            "raised_by_summary": self.metrics["raised_by_summary"],
         }

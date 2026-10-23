@@ -568,3 +568,57 @@ def test_config_endpoint_exposes_the_risk_posture(client):
     body = client.get("/config").json()
     assert body["decision"]["human_fallback_confidence"] == 0.60
     assert body["vlm"]["backend"] == "stub"
+
+
+# ---------------- Frigate's summary of the whole event (D-045) ----------------
+
+
+def _summary_report(ctx: AlertContext, level: int, text: str = "A person walks to the gate and leaves.") -> AlertContext:
+    from watchwise.nvr.source import review_payload_to_context
+
+    after = {"id": ctx.review_id, "camera": ctx.camera, "start_time": ctx.start_time,
+             "end_time": ctx.end_time, "severity": "alert",
+             "data": {"objects": ctx.labels, "zones": ctx.zones,
+                      "metadata": {"title": "Person at the gate", "shortSummary": text,
+                                   "confidence": 0.8, "potential_threat_level": level}}}
+    return review_payload_to_context({"type": "genai", "after": after})
+
+
+async def test_a_suspicious_summary_raises_a_downgraded_event(system):
+    alert = _alert("sum-1", camera="cam_yard", labels=["cat"], ts=DAY_TS + 50_000)
+    assert (await system.pipeline.handle(alert)).disposition is Disposition.DOWNGRADED
+    calls = system.pipeline.metrics["vlm_calls"]
+
+    raised = await system.pipeline.handle(_summary_report(alert, level=1))
+    assert (raised.disposition, raised.stage) == (Disposition.ALERTED, Stage.SUMMARIZED)
+    assert raised.summary == "Person at the gate. A person walks to the gate and leaves."
+    assert system.pipeline.metrics["vlm_calls"] == calls, "the summary costs no model call of ours"
+    row = system.store.get_alert("sum-1")
+    assert (row["disposition"], row["summary"]) == ("alerted", raised.summary)
+
+
+async def test_a_calm_summary_never_lowers_an_alert(system):
+    alert = _alert("sum-2", camera="cam_door", labels=["person"], ts=DAY_TS + 60_000)
+    await system.pipeline.handle(alert)
+    await system.investigations.drain(timeout=10)
+    before = system.memory_sink.latest("sum-2")
+    after = await system.pipeline.handle(_summary_report(alert, level=0, text="A resident walks in."))
+    assert after.disposition is before.disposition
+    assert after.summary == "Person at the gate. A resident walks in."
+
+
+async def test_a_summary_can_undo_what_a_learned_rule_held_back(system):
+    """The B-020 guard: the gate never looks at the frames; Frigate's summary did."""
+    system.config.gate.never_screen_labels = ["dog"]
+    alert = _alert("sum-3", camera="cam_yard", labels=["dog"], ts=DAY_TS + 70_000)
+    held = await system.pipeline.handle(alert)
+    assert (held.stage, held.disposition) == (Stage.GATED, Disposition.SUPPRESSED)
+    raised = await system.pipeline.handle(_summary_report(alert, level=2, text="A person climbs the fence."))
+    assert raised.disposition is Disposition.ALERTED and "critical" in raised.rationale
+
+
+async def test_a_summary_for_an_event_never_seen_is_judged_with_it(system):
+    alert = _alert("sum-4", camera="cam_yard", labels=["cat"], ts=DAY_TS + 80_000)
+    decision = await system.pipeline.handle(_summary_report(alert, level=0, text="A cat crosses the lawn."))
+    assert decision.stage is Stage.SCREENED and decision.summary.endswith("A cat crosses the lawn.")
+    assert system.pipeline.metrics["vlm_calls"] >= 1

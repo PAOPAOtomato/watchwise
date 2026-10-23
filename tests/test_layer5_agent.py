@@ -28,6 +28,7 @@ from watchwise.tier3.investigator import InvestigationQueue, Investigator
 from watchwise.tools.base import ToolContext
 from watchwise.tools.duty_roster import DutyRoster
 from watchwise.types import (
+    Decision,
     Disposition,
     Investigation,
     ScreenResult,
@@ -441,3 +442,28 @@ def test_low_confidence_never_auto_resolves(policy):
             d = policy.from_investigation(make_alert(), None, inv)
             assert d.disposition is Disposition.ESCALATED_HUMAN
             assert d.severity is Severity.ALERT
+
+
+@pytest.mark.parametrize(
+    "disposition, level, expected",
+    [
+        (Disposition.DOWNGRADED, 1, Disposition.ALERTED),
+        (Disposition.SUPPRESSED, 2, Disposition.ALERTED),
+        (Disposition.DOWNGRADED, 0, Disposition.DOWNGRADED),
+        (Disposition.ALERTED, 0, Disposition.ALERTED),
+        (Disposition.ESCALATED_HUMAN, 0, Disposition.ESCALATED_HUMAN),
+    ],
+)
+def test_frigates_summary_can_raise_but_never_lower(policy, disposition, level, expected):
+    """D-045: Frigate's review of the whole event is evidence, not a second judge."""
+    from watchwise.types import ReviewSummary
+
+    decision = Decision(review_id="r", disposition=disposition, severity=Severity.DETECTION,
+                        confidence=0.9, rationale="tier-2 screening: fine", stage=Stage.SCREENED)
+    summary = ReviewSummary(title="Person at the window", short_summary="Someone tries the window.",
+                            threat_level=level, confidence=0.7)
+    result = policy.with_summary(decision, summary)
+    assert result.disposition is expected
+    assert result.summary == "Person at the window. Someone tries the window."
+    if expected is not disposition:
+        assert result.stage is Stage.SUMMARIZED and "rated it" in result.rationale

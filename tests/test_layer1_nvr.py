@@ -156,3 +156,36 @@ async def test_replay_source_feeds_the_same_queue(tmp_path):
     await source.run()
     assert queue.qsize() == 3
     assert (await queue.get()).review_id == "rev-0"
+
+
+def _genai_payload(review_id="r", level=1, **metadata):
+    meta = {"title": "Person at the door", "shortSummary": "A person walks to the door, looks around and leaves.",
+            "scene": "x", "confidence": 0.8, "potential_threat_level": level, **metadata}
+    return {"type": "genai", "after": {"id": review_id, "camera": "c", "start_time": 1.0, "end_time": 9.0,
+                                       "severity": "alert", "data": {"objects": ["person"], "metadata": meta}}}
+
+
+def test_frigates_summary_of_a_finished_review_is_read():
+    ctx = review_payload_to_context(_genai_payload(level=2))
+    assert ctx is not None and ctx.summary is not None
+    assert (ctx.summary.threat_level, ctx.summary.confidence) == (2, 0.8)
+    assert ctx.summary.text() == "Person at the door. A person walks to the door, looks around and leaves."
+    odd = review_payload_to_context(_genai_payload(level="lots", confidence=7))
+    assert (odd.summary.threat_level, odd.summary.confidence) == (0, 0.0)
+    plain = review_payload_to_context({"type": "end", "after": {"id": "r", "camera": "c", "start_time": 1.0}})
+    assert plain.summary is None
+
+
+async def test_mqtt_source_always_passes_frigates_summaries_on():
+    import asyncio
+    from types import SimpleNamespace
+
+    from watchwise.config import MQTTSettings
+    from watchwise.nvr.source import MQTTAlertSource
+
+    queue: asyncio.Queue = asyncio.Queue()
+    source = MQTTAlertSource(queue, MQTTSettings(), screen_on=("end",))
+    source._loop = asyncio.get_running_loop()
+    source._on_message(None, None, SimpleNamespace(payload=json.dumps(_genai_payload()).encode(), topic="t"))
+    await asyncio.sleep(0.05)
+    assert queue.get_nowait().summary is not None

@@ -28,17 +28,31 @@ record:
   motion:
     days: 3
 
-# Optional: Frigate's own GenAI review summaries, using the same Ollama server.
-# Watchwise can reuse these as screening evidence instead of a second VLM call.
+# Optional: Frigate's own GenAI summary of each finished alert, written from
+# several frames of the whole event. Watchwise adds it to its cards ("What
+# happened"), and a suspicious or critical rating raises an event Watchwise had
+# downgraded or held back (it never lowers one). Use the same Ollama server and
+# model as Watchwise's screener, with the same context length (num_ctx), or
+# Ollama reloads the model whenever the two take turns. Frigate replaces its
+# default options when you set `options`, so they are repeated here.
+# Caveat: Frigate sends about one frame per second of the event and budgets
+# frames with a generic token estimate. qwen3-vl on Ollama spends far more
+# tokens per frame than that, so with an 8192 context only events of a few
+# seconds fit; longer ones fail (Frigate logs a warning, the card keeps
+# Watchwise's own reason).
 # genai:
 #   local:
 #     provider: ollama
 #     base_url: http://ollama:11434
-#     model: qwen3-vl:4b
+#     model: qwen3-vl:8b-instruct
 #     roles: [descriptions]
+#     provider_options:
+#       options: {num_ctx: 8192, temperature: 0.5, repeat_penalty: 1.05, presence_penalty: 0.3}
 # review:
 #   genai:
 #     enabled: true
+#     additional_concerns:
+#       - Unusual or erratic behaviour or gestures by a person
 
 cameras:
   front_door: # one block per camera; rename freely

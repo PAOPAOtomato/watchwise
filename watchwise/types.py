@@ -50,6 +50,23 @@ class Stage(str, Enum):
     GATED = "gated"  # stopped by the cheap pre-VLM gate
     SCREENED = "screened"  # tier 2 VLM ran
     INVESTIGATED = "investigated"  # tier 3 agent ran
+    SUMMARIZED = "summarized"  # raised by the NVR's review of the whole event
+
+
+@dataclass(slots=True)
+class ReviewSummary:
+    """The NVR's own description of a whole review segment (Frigate's GenAI
+    review summary), produced after the segment ends."""
+
+    title: str
+    short_summary: str
+    threat_level: int = 0  # 0 normal, 1 suspicious, 2 critical
+    confidence: float = 0.0
+    concerns: list[str] = field(default_factory=list)
+
+    def text(self) -> str:
+        title = self.title.strip().rstrip(".")
+        return f"{title}. {self.short_summary.strip()}" if title else self.short_summary.strip()
 
 
 @dataclass(slots=True)
@@ -74,6 +91,8 @@ class AlertContext:
     thumb_path: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
     received_at: float = field(default_factory=time.time)
+    # Set on the NVR's GenAI report for the segment, which follows its end.
+    summary: ReviewSummary | None = None
 
     @property
     def duration(self) -> float:
@@ -174,6 +193,8 @@ class Decision:
     investigation_id: str | None = None
     matched_memory_ids: list[str] = field(default_factory=list)
     decided_at: float = field(default_factory=time.time)
+    # What happened over the whole event, from the NVR's review summary.
+    summary: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -187,6 +208,7 @@ class Decision:
             "investigation_id": self.investigation_id,
             "matched_memory_ids": list(self.matched_memory_ids),
             "decided_at": self.decided_at,
+            "summary": self.summary,
         }
 
 

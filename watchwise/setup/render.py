@@ -26,7 +26,11 @@ HEADER = """\
 
 SECTION_COMMENTS = {
     "profile": None,
-    "nvr": "# Tier 1: the NVR (Frigate). Port 5000 is its internal, unauthenticated API.",
+    "nvr": (
+        "# Tier 1: the NVR (Frigate). Port 5000 is its internal, unauthenticated API.\n"
+        "# web_url: Frigate's web page as your phone reaches it (e.g. over Tailscale);\n"
+        "# alert cards then link each alert's recording there."
+    ),
     "mqtt": "# Frigate's MQTT broker. topic_prefix must match Frigate's mqtt.topic_prefix.",
     "models": (
         "# Model endpoints. provider: stub | ollama | openai_compat | anthropic.\n"
@@ -71,7 +75,7 @@ def build_config_dict(
     agent.update(profile.tuning.get("agent", {}))
     return {
         "profile": profile.name,
-        "nvr": {"base_url": nvr_url},
+        "nvr": {"base_url": nvr_url, "web_url": "${FRIGATE_WEB_URL:-}"},
         "mqtt": {
             "enabled": mqtt_enabled,
             "host": mqtt_host,

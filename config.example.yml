@@ -11,6 +11,10 @@ nvr:
   # Port 5000 is Frigate's internal API. From the compose network:
   # http://frigate:5000. From the host: http://localhost:5000.
   base_url: ${FRIGATE_URL:-http://localhost:5000}
+  # Frigate's web page as your phone reaches it, e.g. over Tailscale
+  # (https://<machine>.<tailnet>.ts.net:8971). Alert cards then get a link to
+  # each alert's recording; the link passes through Telegram. Empty: no link.
+  web_url: ${FRIGATE_WEB_URL:-}
   timeout_s: 10.0
 
 mqtt:

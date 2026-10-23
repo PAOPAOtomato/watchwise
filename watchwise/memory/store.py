@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     rationale       TEXT,
     screen_json     TEXT,
     investigation_id TEXT,
+    summary         TEXT,
     created_at      REAL NOT NULL,
     updated_at      REAL NOT NULL
 );
@@ -150,7 +151,14 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Columns added after a database was created; never drops anything."""
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(alerts)")}
+        if "summary" not in columns:
+            self._conn.execute("ALTER TABLE alerts ADD COLUMN summary TEXT")
 
     def close(self) -> None:
         with self._lock:
@@ -227,7 +235,8 @@ class Store:
         self.execute(
             """
             UPDATE alerts SET disposition=?, severity=?, confidence=?, rationale=?,
-                              screen_json=?, investigation_id=?, stage=?, updated_at=?
+                              screen_json=?, investigation_id=?, stage=?, updated_at=?,
+                              summary=COALESCE(?, summary)
             WHERE review_id=?
             """,
             (
@@ -239,6 +248,7 @@ class Store:
                 decision.get("investigation_id"),
                 decision["stage"],
                 time.time(),
+                decision.get("summary"),
                 decision["review_id"],
             ),
         )

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from watchwise.config import MQTTSettings
-from watchwise.types import AlertContext, Severity
+from watchwise.types import AlertContext, ReviewSummary, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ def review_payload_to_context(payload: dict[str, Any]) -> AlertContext | None:
         severity = Severity.ALERT
 
     return AlertContext(
+        summary=_summary(data.get("metadata")),
         review_id=str(after.get("id")),
         camera=str(after.get("camera") or "unknown"),
         start_time=float(after.get("start_time") or 0.0),
@@ -58,6 +59,24 @@ def review_payload_to_context(payload: dict[str, Any]) -> AlertContext | None:
         event_ids=list(data.get("detections") or []),
         thumb_path=after.get("thumb_path"),
         raw=payload,
+    )
+
+
+def _summary(metadata: Any) -> ReviewSummary | None:
+    """Frigate's GenAI review summary (``data.metadata``), if it has one."""
+    if not isinstance(metadata, dict) or not (metadata.get("shortSummary") or metadata.get("title")):
+        return None
+    try:
+        level = max(0, min(2, int(metadata.get("potential_threat_level") or 0)))
+        confidence = max(0.0, min(1.0, float(metadata.get("confidence") or 0.0)))
+    except (TypeError, ValueError):
+        level, confidence = 0, 0.0
+    return ReviewSummary(
+        title=str(metadata.get("title") or ""),
+        short_summary=str(metadata.get("shortSummary") or ""),
+        threat_level=level,
+        confidence=confidence,
+        concerns=[str(c) for c in metadata.get("other_concerns") or []],
     )
 
 
@@ -101,7 +120,8 @@ class MQTTAlertSource(AlertSource):
     does not wait for it to end, and its ``end`` report is passed on too: the
     pipeline calls the model again only if the finished segment shows a new
     label or zone. ``update`` reports are skipped, since screening a segment
-    on every change would burn a model call per update.
+    on every change would burn a model call per update. ``genai`` reports
+    (the NVR's own summary of a finished segment) always pass through.
     """
 
     def __init__(
@@ -157,7 +177,7 @@ class MQTTAlertSource(AlertSource):
         except (ValueError, UnicodeDecodeError):
             logger.warning("undecodable review payload on %s", msg.topic)
             return
-        if payload.get("type") not in self.screen_on:
+        if payload.get("type") not in self.screen_on and payload.get("type") != "genai":
             return
         ctx = review_payload_to_context(payload)
         if ctx is None or ctx.severity.value not in self.severities:

@@ -20,6 +20,7 @@ missed intrusion costs considerably more.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from watchwise.config import DecisionSettings
 from watchwise.tier2.gate import GateResult
@@ -28,6 +29,7 @@ from watchwise.types import (
     Decision,
     Disposition,
     Investigation,
+    ReviewSummary,
     ScreenResult,
     Severity,
     Stage,
@@ -93,6 +95,38 @@ class DecisionPolicy:
             rationale="analyzing: the vision model is still looking at this event",
             stage=Stage.INGESTED,
         )
+
+    # ---------------- Frigate's summary of the whole event ----------------
+
+    def with_summary(self, decision: Decision, summary: ReviewSummary) -> Decision:
+        """Attach what happened over the whole event (D-045). A suspicious or
+        critical rating raises an event that was downgraded or held back; it
+        never lowers anything, so the summary can only make Watchwise more
+        careful."""
+        text = summary.text()
+        if (
+            self.settings.summary_can_raise
+            and summary.threat_level >= 1
+            and decision.disposition in (Disposition.DOWNGRADED, Disposition.SUPPRESSED)
+            and decision.stage is not Stage.INGESTED
+        ):
+            rating = "critical" if summary.threat_level >= 2 else "suspicious"
+            return Decision(
+                review_id=decision.review_id,
+                disposition=Disposition.ALERTED,
+                severity=Severity.ALERT,
+                confidence=summary.confidence,
+                rationale=(
+                    f"raised: Frigate's review of the whole event rated it {rating}. "
+                    f"{summary.short_summary}"
+                ),
+                stage=Stage.SUMMARIZED,
+                screen=decision.screen,
+                investigation_id=decision.investigation_id,
+                matched_memory_ids=list(decision.matched_memory_ids),
+                summary=text,
+            )
+        return replace(decision, summary=text)
 
     # ---------------- after tier 2 ----------------
 

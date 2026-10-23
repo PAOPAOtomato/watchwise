@@ -133,6 +133,71 @@ async def test_a_slow_verdict_first_shows_an_analyzing_card_then_edits_it(system
     assert "a person at the fence" in verdict["text"] and "Analyzing" not in verdict["text"]
 
 
+async def test_cards_link_to_the_recording_when_frigates_web_page_is_known(config, nvr_client, tg):
+    """M2-13: the card judges; Frigate's page shows the whole event."""
+    api, state, _ = tg
+    config.notify.telegram = TelegramSettings(enabled=True, chat_ids=[CHAT], min_interval_s=0.0)
+    config.nvr.web_url = "https://watchwise-dev.example.ts.net:8971/"
+    sys_ = build_system(config, nvr_client=nvr_client, start_sources=False, telegram_api=api)
+    sys_.background = [sys_.notifier]
+    await sys_.start()
+    try:
+        await sys_.pipeline.handle(night_person())
+        await settle(sys_)
+        clip = ("▶️ Clip", "https://watchwise-dev.example.ts.net:8971/review?id=rev-a")
+        assert state.links(state.sent[0]) == [clip]
+        assert state.links(state.edits[-1]) == [clip], "a revised card keeps its link"
+        assert "fb:ok:rev-a" in state.buttons(state.sent[0])
+    finally:
+        await sys_.stop()
+
+
+async def test_frigates_summary_is_added_to_the_card_and_can_raise_one(system):
+    """D-045, seen from the phone."""
+    from watchwise.nvr.source import review_payload_to_context
+
+    sys_, state = system
+
+    def summary_of(ctx, level, text):
+        after = {"id": ctx.review_id, "camera": ctx.camera, "start_time": ctx.start_time,
+                 "end_time": ctx.end_time, "severity": "alert",
+                 "data": {"objects": ctx.labels, "zones": ctx.zones,
+                          "metadata": {"title": "Person by the fence", "shortSummary": text,
+                                       "confidence": 0.8, "potential_threat_level": level}}}
+        return review_payload_to_context({"type": "genai", "after": after})
+
+    alert = night_person()
+    await sys_.pipeline.handle(alert)
+    await settle(sys_)
+    await sys_.pipeline.handle(summary_of(alert, 0, "A person walks along the fence and leaves."))
+    await sys_.notifier.drain()
+    assert len(state.sent) == 1
+    assert "What happened: Person by the fence. A person walks along the fence" in state.edits[-1]["text"]
+
+    # A routine event sends nothing, until Frigate's review of it says otherwise.
+    cat = make_alert(review_id="cat-2", camera="cam_yard", labels=["cat"])
+    await sys_.pipeline.handle(cat)
+    await sys_.notifier.drain()
+    assert len(state.sent) == 1
+    await sys_.pipeline.handle(summary_of(cat, 1, "A person crouches behind the shed."))
+    await sys_.notifier.drain()
+    assert len(state.sent) == 2 and "A person crouches behind the shed" in state.sent[-1]["text"]
+
+
+async def test_no_link_without_frigates_web_page(system):
+    sys_, state = system
+    await sys_.pipeline.handle(night_person())
+    await sys_.notifier.drain()
+    assert state.links(state.sent[0]) == []
+
+
+def test_a_clip_link_quotes_the_review_id():
+    from watchwise.notify.presenter import clip_url
+
+    assert clip_url("https://f:8971", "1792.5-ab/c") == "https://f:8971/review?id=1792.5-ab%2Fc"
+    assert clip_url(None, "x") is None and clip_url("", "x") is None
+
+
 async def test_routine_activity_sends_nothing(system):
     sys_, state = system
     await sys_.pipeline.handle(make_alert(review_id="cat", camera="cam_yard", labels=["cat"]))
@@ -406,7 +471,7 @@ def test_telegram_link_connects_the_chat_that_sends_start(linked_cli, capsys):
     assert "Found chat 555 Rui" in capsys.readouterr().out
 
 
-def test_telegram_test_sends_a_sample_card(linked_cli, capsys):
+def test_telegram_test_sends_a_sample_card(linked_cli, capsys, monkeypatch):
     state, path = linked_cli
     state.push_message(555, "/start")
     assert cli.main(["telegram", "link", "--config", str(path), "--yes", "--wait", "2"]) == 0
@@ -414,6 +479,13 @@ def test_telegram_test_sends_a_sample_card(linked_cli, capsys):
     card = state.sent[-1]
     assert card["method"] == "sendPhoto" and card["chat_id"] == 555
     assert "test card" in card["text"]
+    assert state.links(card) == []
+
+    # The generated config reads Frigate's web page from the environment; the
+    # test card then carries a link, so the phone can be checked before an alert.
+    monkeypatch.setenv("FRIGATE_WEB_URL", "https://watchwise-dev.example.ts.net:8971")
+    assert cli.main(["telegram", "test", "--config", str(path)]) == 0
+    assert state.links(state.sent[-1]) == [("▶️ Clip", "https://watchwise-dev.example.ts.net:8971/review")]
 
 
 def test_telegram_commands_explain_a_missing_token(monkeypatch, tmp_path, capsys):

@@ -35,6 +35,7 @@ from watchwise.notify.presenter import (
     TEXT_LIMIT,
     AlertCard,
     build_card,
+    clip_url,
     context_from_row,
     decision_from_row,
     keyboard_markup,
@@ -188,12 +189,15 @@ class TelegramNotifier:
         store: Store,
         nvr: NVRClient,
         *,
+        web_url: str | None = None,
         clock: Callable[[], float] = time.time,
     ):
         self.api = api
         self.settings = settings
         self.store = store
         self.nvr = nvr
+        # Frigate's web page, for each card's link to its recording.
+        self.web_url = web_url
         self.clock = clock
         self._queue: asyncio.Queue[tuple[AlertContext, Decision]] = asyncio.Queue(maxsize=256)
         self._task: asyncio.Task[None] | None = None
@@ -252,7 +256,7 @@ class TelegramNotifier:
     async def _send(self, ctx: AlertContext, decision: Decision) -> None:
         card = build_card(ctx, decision)
         image = await self._snapshot(ctx) if self.settings.send_images else None
-        markup = keyboard_markup(ctx.review_id, card.keyboard)
+        markup = keyboard_markup(ctx.review_id, card.keyboard, clip=clip_url(self.web_url, ctx.review_id))
         for chat_id in self.settings.chat_ids:
             await self._pace(str(chat_id))
             if image:
@@ -289,7 +293,7 @@ class TelegramNotifier:
 
     async def _edit_all(self, rows: list[Any], card: AlertCard, footer: str, keyboard: str) -> None:
         card.footer = footer
-        markup = keyboard_markup(card.review_id, keyboard)
+        markup = keyboard_markup(card.review_id, keyboard, clip=clip_url(self.web_url, card.review_id))
         for row in rows:
             limit = CAPTION_LIMIT if row["has_image"] else TEXT_LIMIT
             try:

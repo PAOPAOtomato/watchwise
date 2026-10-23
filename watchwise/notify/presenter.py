@@ -13,6 +13,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 from watchwise.timeutil import safe_strftime
 from watchwise.types import (
@@ -39,6 +40,7 @@ STAGE_LABELS = {
     Stage.GATED: "decided by a rule or a learned pattern, no model call",
     Stage.SCREENED: "first look by the vision model",
     Stage.INVESTIGATED: "after an investigation",
+    Stage.SUMMARIZED: "raised by Frigate's review of the whole event",
 }
 INVESTIGATING = "🔎 Investigating with the forensic tools; this message will update."
 ANALYZING = "⏳ Analyzing the frames; this message will update with the verdict."
@@ -53,6 +55,7 @@ class Button:
 OK, REAL = Button("✅ Expected", "ok"), Button("🚨 Real", "real")
 LOOK, SNOOZE, WHY = Button("🔍 Look closer", "look"), Button("🔇 Snooze", "snooze"), Button("❓ Why", "why")
 UNDO = Button("↩️ Undo", "undo")
+CLIP_LABEL = "▶️ Clip"
 KEYBOARDS: dict[str, list[list[Button]]] = {
     "full": [[OK, REAL], [LOOK, SNOOZE, WHY]],  # nothing investigated yet
     "standard": [[OK, REAL], [SNOOZE, WHY]],  # investigated, or being investigated
@@ -107,6 +110,8 @@ def build_card(ctx: AlertContext, decision: Decision) -> AlertCard:
             f"Why: {plain_reason(decision)}",
             f"Confidence {decision.confidence:.2f} · {STAGE_LABELS.get(decision.stage, decision.stage.value)}",
         ]
+    if decision.summary:
+        lines.insert(1, f"What happened: {decision.summary}")
     if _investigating(decision):
         lines.append(INVESTIGATING)
     return AlertCard(
@@ -156,9 +161,17 @@ def plain_reason(decision: Decision) -> str:
     return _PREFIX.sub("", text).strip() or "no reason recorded"
 
 
-def keyboard_markup(review_id: str, keyboard: str) -> dict[str, Any]:
+def clip_url(web_url: str | None, review_id: str) -> str | None:
+    """Where Frigate's web page plays this alert's recording."""
+    if not web_url:
+        return None
+    return f"{web_url.rstrip('/')}/review?id={quote(review_id, safe='')}"
+
+
+def keyboard_markup(review_id: str, keyboard: str, *, clip: str | None = None) -> dict[str, Any]:
     """Telegram inline keyboard. ``keyboard`` may carry an argument for Undo,
-    as ``after_feedback:<correction_id>``."""
+    as ``after_feedback:<correction_id>``. ``clip`` adds a link to the
+    recording on its own row."""
     name, _, arg = keyboard.partition(":")
     rows = []
     for row in KEYBOARDS.get(name, KEYBOARDS["full"]):
@@ -174,6 +187,8 @@ def keyboard_markup(review_id: str, keyboard: str) -> dict[str, Any]:
             buttons.append({"text": button.label, "callback_data": data})
         if buttons:
             rows.append(buttons)
+    if clip:
+        rows.append([{"text": CLIP_LABEL, "url": clip}])
     return {"inline_keyboard": rows}
 
 
@@ -228,6 +243,7 @@ def decision_from_row(row: Any) -> Decision | None:
         stage=Stage(row["stage"]),
         screen=screen,
         investigation_id=row["investigation_id"],
+        summary=row["summary"] if "summary" in row.keys() else None,
     )
 
 

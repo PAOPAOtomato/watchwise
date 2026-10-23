@@ -35,6 +35,10 @@ class NVRSettings(BaseModel):
     """How to reach the NVR (Frigate) base layer."""
 
     base_url: str = "http://localhost:5000"
+    # Frigate's web page as your phone reaches it (e.g. over Tailscale), not
+    # the internal API above. Alert cards then link each alert's recording
+    # there; the link (host name and review id) passes through Telegram.
+    web_url: str | None = None
     api_prefix: str = "/api"
     # NVR supports header auth when behind its proxy; empty means none.
     headers: dict[str, str] = Field(default_factory=dict)
@@ -193,6 +197,10 @@ class DecisionSettings(BaseModel):
     # The same while armed away or at night, when a quick card matters more
     # than an extra buzz for something harmless.
     provisional_after_armed_s: float | None = 0.0
+    # Frigate's GenAI summary of a finished event may raise one that was
+    # downgraded or held back to an alert (suspicious or critical rating).
+    # It never lowers anything.
+    summary_can_raise: bool = True
 
 
 NotifyOn = Literal["alerted", "escalated_human", "downgraded", "suppressed"]

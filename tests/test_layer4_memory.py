@@ -381,3 +381,32 @@ def test_patterns_and_vectors_survive_a_restart(tmp_path):
     hits = lib2.search("headlights", signature="cam|car|drive")
     assert hits and hits[0].pattern_id == pid
     store2.close()
+
+
+def test_an_existing_database_gains_the_summary_column(tmp_path):
+    """Databases created before summaries existed are migrated in place."""
+    import sqlite3
+
+    from watchwise.memory.store import Store
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute(
+        "CREATE TABLE alerts (review_id TEXT PRIMARY KEY, camera TEXT NOT NULL, start_time REAL NOT NULL, "
+        "end_time REAL, signature TEXT NOT NULL, labels TEXT NOT NULL DEFAULT '[]', zones TEXT NOT NULL "
+        "DEFAULT '[]', stage TEXT NOT NULL, disposition TEXT, severity TEXT, confidence REAL, rationale TEXT, "
+        "screen_json TEXT, investigation_id TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL)"
+    )
+    old.execute("INSERT INTO alerts VALUES ('r', 'c', 1, 2, 'c|person|nozone', '[]', '[]', 'screened', "
+                "'alerted', 'alert', 0.5, 'why', NULL, NULL, 1, 1)")
+    old.commit()
+    old.close()
+
+    store = Store(path)
+    decision = {"review_id": "r", "disposition": "alerted", "severity": "alert", "confidence": 0.5,
+                "rationale": "why", "stage": "screened", "summary": "A person walks past."}
+    store.record_decision(decision)
+    assert store.get_alert("r")["summary"] == "A person walks past."
+    store.record_decision({**decision, "summary": None, "stage": "investigated"})
+    assert store.get_alert("r")["summary"] == "A person walks past.", "a later decision keeps it"
+    store.close()

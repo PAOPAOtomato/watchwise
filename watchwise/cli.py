@@ -660,7 +660,8 @@ async def _telegram_test(config: Any, token: str) -> int:
         "This is a test card from Watchwise (a drawn image, not a camera).",
         "On real alerts the buttons work while `watchwise serve` is running.",
     ]
-    markup = keyboard_markup("test", "standard")
+    web_url = (config.nvr.web_url or "").rstrip("/")
+    markup = keyboard_markup("test", "standard", clip=f"{web_url}/review" if web_url else None)
     api = TelegramAPI(token, base_url=settings.api_base_url)
     try:
         for chat_id in settings.chat_ids:

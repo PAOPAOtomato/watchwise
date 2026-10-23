@@ -66,7 +66,13 @@ class FakeTelegramState:
     def buttons(self, record: dict[str, Any]) -> list[str]:
         """The callback_data of every button on a sent or edited message."""
         markup = record.get("reply_markup") or {}
-        return [b["callback_data"] for row in markup.get("inline_keyboard", []) for b in row]
+        rows = markup.get("inline_keyboard", [])
+        return [b["callback_data"] for row in rows for b in row if "callback_data" in b]
+
+    def links(self, record: dict[str, Any]) -> list[tuple[str, str]]:
+        """(label, url) of every link button on a sent or edited message."""
+        markup = record.get("reply_markup") or {}
+        return [(b["text"], b["url"]) for row in markup.get("inline_keyboard", []) for b in row if "url" in b]
 
 
 def _parse_multipart(body: bytes, content_type: str) -> tuple[dict[str, str], dict[str, bytes]]:
