@@ -39,7 +39,7 @@ numbers with `ollama show <model>`; the context window adds more on top.
 |---|---|---|
 | `qwen3-vl:2b` | ~2 GB | `cpu-hybrid` screener |
 | `qwen3-vl:4b` | ~3-4 GB | `cpu-local`, `apple-silicon-8gb` |
-| `qwen3-vl:8b` | ~6 GB | `nvidia`, `apple-silicon`, `amd-rocm` |
+| `qwen3-vl:8b-instruct` | ~6 GB | `nvidia`, `nvidia-16gb` screener, `apple-silicon`, `amd-rocm` |
 | `qwen3:14b` | ~9 GB | `nvidia-16gb` reasoning |
 
 One vision+tools model (`qwen3-vl`) serves every local role on small machines,

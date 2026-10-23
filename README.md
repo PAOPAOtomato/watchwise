@@ -69,11 +69,11 @@ profile:
 |---|---|---|---|
 | `cpu-local` | no usable GPU, everything local | `qwen3-vl:4b` on Ollama for every role | nothing |
 | `cpu-hybrid` | no GPU + a cloud key (**recommended without a GPU**) | local `qwen3-vl:2b` screens frames; your cloud model investigates and chats | text only (no images) |
-| `nvidia` | NVIDIA, 8-15 GB | `qwen3-vl:8b` for every role | nothing |
-| `nvidia-16gb` | NVIDIA, 16 GB+ | `qwen3-vl:8b` screening, `qwen3:14b` reasoning | nothing |
-| `apple-silicon` | Mac, 16 GB+ | `qwen3-vl:8b` via native Ollama (Metal) | nothing |
+| `nvidia` | NVIDIA, 8-15 GB | `qwen3-vl:8b-instruct` for every role | nothing |
+| `nvidia-16gb` | NVIDIA, 16 GB+ | `qwen3-vl:8b-instruct` screening, `qwen3:14b` reasoning | nothing |
+| `apple-silicon` | Mac, 16 GB+ | `qwen3-vl:8b-instruct` via native Ollama (Metal) | nothing |
 | `apple-silicon-8gb` | Mac, 8 GB | `qwen3-vl:4b` | nothing |
-| `amd-rocm` | AMD GPU (Linux) | `qwen3-vl:8b` via Ollama ROCm | nothing |
+| `amd-rocm` | AMD GPU (Linux) | `qwen3-vl:8b-instruct` via Ollama ROCm | nothing |
 | `cloud` | nothing to install | your cloud model for every role | images and text |
 | `demo` | trying it out | stand-ins, no models | nothing |
 

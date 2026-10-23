@@ -9,8 +9,11 @@
 # small machines so only one model has to stay loaded.
 #
 # A model's max_tokens is also the screener's output cap. The default qwen3-vl
-# tags think before they answer (400-700 tokens measured on qwen3-vl:8b), so
-# keep it at 1024 or more; a smaller cap returns no verdict at all.
+# tags think before they answer, so keep it at 1024 or more for them; a
+# smaller cap returns no verdict at all. The GPU profiles use the -instruct
+# (non-thinking) tag: measured with `watchwise check` on a GCP L4 (2026-10-22),
+# qwen3-vl:8b-instruct screened in 1.2-1.3 s with ~55 output tokens, where
+# qwen3-vl:8b took 10.8-14.2 s and 477-638 tokens.
 version: 1
 
 # Profiles tried in this order when choosing automatically. The first whose
@@ -164,7 +167,7 @@ profiles:
       local:
         provider: ollama
         base_url: ${OLLAMA_URL:-http://localhost:11434}
-        model: qwen3-vl:8b
+        model: qwen3-vl:8b-instruct
         context_window: 8192
         max_tokens: 1024
         timeout_s: 120
@@ -188,7 +191,7 @@ profiles:
       vision:
         provider: ollama
         base_url: ${OLLAMA_URL:-http://localhost:11434}
-        model: qwen3-vl:8b
+        model: qwen3-vl:8b-instruct
         context_window: 8192
         max_tokens: 1024
         timeout_s: 120
@@ -217,7 +220,7 @@ profiles:
       local:
         provider: ollama
         base_url: ${OLLAMA_URL:-http://localhost:11434}
-        model: qwen3-vl:8b
+        model: qwen3-vl:8b-instruct
         context_window: 8192
         max_tokens: 1024
         timeout_s: 120
@@ -260,7 +263,7 @@ profiles:
       local:
         provider: ollama
         base_url: ${OLLAMA_URL:-http://localhost:11434}
-        model: qwen3-vl:8b
+        model: qwen3-vl:8b-instruct
         context_window: 8192
         max_tokens: 1024
         timeout_s: 120
