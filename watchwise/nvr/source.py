@@ -18,7 +18,7 @@ import contextlib
 import json
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,9 @@ def review_payload_to_context(payload: dict[str, Any]) -> AlertContext | None:
         start_time=float(after.get("start_time") or 0.0),
         end_time=float(after["end_time"]) if after.get("end_time") else None,
         severity=severity,
-        labels=list(data.get("objects") or []),
+        # The NVR calls a person it has named "person-verified" (B-025); it is
+        # still a person, for memory and for the arming rules.
+        labels=list(dict.fromkeys(str(o).removesuffix("-verified") for o in data.get("objects") or [])),
         sub_labels=list(data.get("sub_labels") or []),
         zones=list(data.get("zones") or []),
         event_ids=list(data.get("detections") or []),
@@ -120,8 +122,12 @@ class MQTTAlertSource(AlertSource):
     does not wait for it to end, and its ``end`` report is passed on too: the
     pipeline calls the model again only if the finished segment shows a new
     label or zone. ``update`` reports are skipped, since screening a segment
-    on every change would burn a model call per update. ``genai`` reports
+    on every change would burn a model call per update, except when the NVR
+    has just named someone in it (a new sub-label, D-057). ``genai`` reports
     (the NVR's own summary of a finished segment) always pass through.
+
+    With ``on_face``, the NVR's face-recognition attempts
+    (``<prefix>/tracked_object_update``, type ``face``) are handed to it.
     """
 
     def __init__(
@@ -131,17 +137,23 @@ class MQTTAlertSource(AlertSource):
         *,
         screen_on: Iterable[str] = ("new", "end"),
         severities: Iterable[str] = ("alert",),
+        on_face: Callable[[dict[str, Any]], None] | None = None,
     ):
         super().__init__(queue)
         self.settings = settings
         self.screen_on = set(screen_on)
         self.severities = set(severities)
+        self.on_face = on_face
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client: Any = None
 
     @property
     def topic(self) -> str:
         return f"{self.settings.topic_prefix}/reviews"
+
+    @property
+    def face_topic(self) -> str:
+        return f"{self.settings.topic_prefix}/tracked_object_update"
 
     async def run(self) -> None:
         import paho.mqtt.client as mqtt  # imported lazily; optional dependency
@@ -169,6 +181,9 @@ class MQTTAlertSource(AlertSource):
     def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: Any, props: Any = None) -> None:
         client.subscribe(self.topic)
         logger.info("subscribed to %s", self.topic)
+        if self.on_face is not None:
+            client.subscribe(self.face_topic)
+            logger.info("subscribed to %s", self.face_topic)
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
         # Runs on paho's thread; hop back to the event loop.
@@ -177,13 +192,27 @@ class MQTTAlertSource(AlertSource):
         except (ValueError, UnicodeDecodeError):
             logger.warning("undecodable review payload on %s", msg.topic)
             return
-        if payload.get("type") not in self.screen_on and payload.get("type") != "genai":
+        if msg.topic == self.face_topic:
+            if self.on_face is not None and payload.get("type") == "face" and self._loop:
+                self._loop.call_soon_threadsafe(self.on_face, payload)
+            return
+        if not self.wanted(payload):
             return
         ctx = review_payload_to_context(payload)
         if ctx is None or ctx.severity.value not in self.severities:
             return
         if self._loop:
             asyncio.run_coroutine_threadsafe(self._emit(ctx), self._loop)
+
+    def wanted(self, payload: dict[str, Any]) -> bool:
+        kind = payload.get("type")
+        if kind in self.screen_on or kind == "genai":
+            return True
+        return kind == "update" and _sub_labels(payload, "after") != _sub_labels(payload, "before")
+
+
+def _sub_labels(payload: dict[str, Any], side: str) -> list[str]:
+    return list(((payload.get(side) or {}).get("data") or {}).get("sub_labels") or [])
 
 
 class ReplayAlertSource(AlertSource):

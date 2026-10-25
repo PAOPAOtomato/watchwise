@@ -384,6 +384,19 @@ async def test_ollama_sends_context_length_and_parses_tool_calls(fake_llm):
     assert tool_msg == {"role": "tool", "content": "{}", "tool_name": "get_device_status"}
 
 
+async def test_a_thinking_model_can_be_told_not_to_think(fake_llm):
+    """M2-14: hidden reasoning was most of the investigator's time per call."""
+    state, client = fake_llm
+    state.models = ["qwen3:14b"]
+    quiet = build_chat_model(ModelEndpoint(provider="ollama", model="qwen3:14b", think=False))
+    quiet._client = client
+    await quiet.complete([Message.user("hi")])
+    assert state.requests[-1]["think"] is False
+    default = OllamaChat("qwen3:14b", "http://fake-llm", client=client)
+    await default.complete([Message.user("hi")])
+    assert "think" not in state.requests[-1]
+
+
 async def test_ollama_missing_model_says_how_to_fix_it(fake_llm):
     _, client = fake_llm
     chat = OllamaChat("not-pulled:7b", "http://fake-llm", client=client)

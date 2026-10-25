@@ -23,8 +23,9 @@ from watchwise.types import AlertContext, Frame
 logger = logging.getLogger(__name__)
 
 
-def sample_timestamps(ctx: AlertContext, count: int) -> list[float]:
-    """Evenly spaced timestamps inside the segment, front-biased."""
+def sample_timestamps(ctx: AlertContext, count: int, *, front_bias: bool = True) -> list[float]:
+    """Evenly spaced timestamps inside the segment, front-biased unless asked
+    to cover it all (a summary of the whole event)."""
     if count <= 0:
         return []
     end = ctx.end_time or (ctx.start_time + 5.0)
@@ -38,7 +39,8 @@ def sample_timestamps(ctx: AlertContext, count: int) -> list[float]:
     fractions = [step * (i + 1) for i in range(count)]
     # Front bias: an exponent above 1 pulls fractions in (0,1) toward zero,
     # so samples cluster nearer the start of the segment.
-    fractions = [f**1.35 for f in fractions]
+    if front_bias:
+        fractions = [f**1.35 for f in fractions]
     return [ctx.start_time + f * span for f in fractions]
 
 
@@ -72,7 +74,7 @@ class FrameSampler:
         self.max_edge = max_edge
         self.quality = quality
 
-    async def for_alert(self, ctx: AlertContext, count: int) -> list[Frame]:
+    async def for_alert(self, ctx: AlertContext, count: int, *, front_bias: bool = True) -> list[Frame]:
         """Best-effort frame set for a review segment.
 
         Falls back through recordings -> event snapshot -> live latest frame.
@@ -80,7 +82,7 @@ class FrameSampler:
         result is returned rather than raising.
         """
         frames: list[Frame] = []
-        for ts in sample_timestamps(ctx, count):
+        for ts in sample_timestamps(ctx, count, front_bias=front_bias):
             try:
                 frame = await self.client.recording_frame(ctx.camera, ts, height=self.max_edge)
             except NVRError as exc:

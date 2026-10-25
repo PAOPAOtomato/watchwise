@@ -125,6 +125,38 @@ async def test_mqtt_source_passes_on_an_events_start_and_end_but_not_its_updates
     assert MQTTSettings().screen_on == ["new", "end"]
 
 
+async def test_mqtt_source_passes_on_a_newly_named_person_and_face_attempts():
+    """D-057: Frigate names a recognized face in a review update, and reports
+    every recognition attempt on <prefix>/tracked_object_update."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from watchwise.config import MQTTSettings
+    from watchwise.nvr.source import MQTTAlertSource
+
+    queue: asyncio.Queue = asyncio.Queue()
+    faces: list[dict] = []
+    source = MQTTAlertSource(queue, MQTTSettings(), on_face=faces.append)
+    source._loop = asyncio.get_running_loop()
+
+    def review(kind, before, after):
+        side = lambda subs: {"id": "r", "camera": "c", "start_time": 1.0, "severity": "alert",  # noqa: E731
+                             "data": {"objects": ["person"], "sub_labels": subs}}
+        payload = {"type": kind, "before": side(before), "after": side(after)}
+        return SimpleNamespace(payload=json.dumps(payload).encode(), topic=source.topic)
+
+    source._on_message(None, None, review("update", [], []))  # nothing new: skipped
+    source._on_message(None, None, review("update", [], ["rui"]))  # newly named: passed on
+    face = {"type": "face", "id": "obj-1", "name": None, "score": 0.0, "camera": "c"}
+    source._on_message(None, None, SimpleNamespace(payload=json.dumps(face).encode(), topic=source.face_topic))
+    lpr = {**face, "type": "lpr"}
+    source._on_message(None, None, SimpleNamespace(payload=json.dumps(lpr).encode(), topic=source.face_topic))
+    await asyncio.sleep(0.05)
+    assert queue.qsize() == 1 and queue.get_nowait().sub_labels == ["rui"]
+    assert faces == [face]
+    assert source.face_topic == f"{MQTTSettings().topic_prefix}/tracked_object_update"
+
+
 def test_unknown_severity_defaults_to_alert():
     ctx = review_payload_to_context(
         {"type": "end", "after": {"id": "r", "camera": "c", "start_time": 1.0,
@@ -189,3 +221,12 @@ async def test_mqtt_source_always_passes_frigates_summaries_on():
     source._on_message(None, None, SimpleNamespace(payload=json.dumps(_genai_payload()).encode(), topic="t"))
     await asyncio.sleep(0.05)
     assert queue.get_nowait().summary is not None
+
+
+def test_a_named_person_is_still_a_person():
+    """B-025: Frigate reports a recognized face's person as "person-verified"."""
+    ctx = review_payload_to_context({"type": "new", "after": {
+        "id": "r", "camera": "c", "start_time": 1.0, "severity": "alert",
+        "data": {"objects": ["person-verified", "person", "car"], "sub_labels": ["Ray"]}}})
+    assert ctx.labels == ["person", "car"] and ctx.sub_labels == ["Ray"]
+    assert ctx.signature() == "c|car,person|nozone"

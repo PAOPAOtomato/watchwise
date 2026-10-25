@@ -63,6 +63,14 @@ async def _search_similar_alerts(ctx: ToolContext, args: dict[str, Any]) -> dict
             # the pattern hits are still useful on their own.
             nvr_error = str(exc)
 
+    # --- what the owner said about earlier events of this kind, as what was
+    # seen in them: a pattern or a count can't tell sitting from gesturing ---
+    rulings = [
+        {"owner_marked": "real" if verdict == "suspicious" else "expected", "what_was_seen": text[:200]}
+        for verdict, text in (ctx.store.correction_examples(signature, limit) if signature else [])
+        if verdict in ("benign", "suspicious")
+    ]
+
     # --- how often this exact signature has fired recently ---
     recurrence: dict[str, Any] = {}
     if signature:
@@ -84,19 +92,38 @@ async def _search_similar_alerts(ctx: ToolContext, args: dict[str, Any]) -> dict
     return {
         "query": query,
         "pattern_matches": pattern_hits,
+        "owner_rulings": rulings,
         "similar_events": nvr_hits,
         "nvr_search_error": nvr_error,
         "signature_recurrence": recurrence,
-        "interpretation": _interpret(pattern_hits, recurrence),
+        "interpretation": _interpret(pattern_hits, recurrence, rulings),
     }
 
 
-def _interpret(pattern_hits: list[dict[str, Any]], recurrence: dict[str, Any]) -> str:
+def _interpret(
+    pattern_hits: list[dict[str, Any]],
+    recurrence: dict[str, Any],
+    rulings: list[dict[str, str]] | None = None,
+) -> str:
     """A plain-language read, so the agent does not have to infer it."""
-    if not pattern_hits and not recurrence.get("count"):
+    rulings = rulings or []
+    if not pattern_hits and not recurrence.get("count") and not rulings:
         return "No prior human judgement or recent recurrence found for this alert."
 
     parts = []
+    real = [r["what_was_seen"] for r in rulings if r["owner_marked"] == "real"]
+    if real:
+        parts.append(
+            f"The owner marked {len(real)} earlier event(s) of this kind REAL, e.g. "
+            f'"{real[0]}". Patterns and counts match only the camera, labels and zones, '
+            "not what the person did: look at this alert's own frames and compare "
+            "before calling it routine."
+        )
+    elif rulings:
+        parts.append(
+            f"The owner marked {len(rulings)} earlier event(s) of this kind expected; "
+            "check that this alert's frames show the same kind of thing."
+        )
     if pattern_hits:
         top = pattern_hits[0]
         parts.append(

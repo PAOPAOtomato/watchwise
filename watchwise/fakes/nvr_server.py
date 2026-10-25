@@ -18,6 +18,7 @@ Endpoints implemented (matching Frigate's HTTP API):
     GET /api/events/{id}/thumbnail.{ext}
     GET /api/{camera}/latest.jpg
     GET /api/{camera}/recordings/{ts}/snapshot.{fmt}
+    POST /api/faces/{name}/register
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ import io
 import time
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import PlainTextResponse, Response
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 
 def make_jpeg(width: int = 64, height: int = 48, shade: int = 128) -> bytes:
@@ -65,6 +66,9 @@ class FakeNVRState:
             }
             for i, name in enumerate(self.cameras)
         }
+        # Face Library: name -> images registered; whether a face is in view.
+        self.faces: dict[str, int] = {}
+        self.face_in_view = True
         self.detector_stats: dict[str, dict[str, Any]] = {
             "ov": {"inference_speed": 8.5, "detection_start": 0.0}
         }
@@ -278,5 +282,14 @@ def build_fake_nvr(state: FakeNVRState | None = None) -> tuple[FastAPI, FakeNVRS
             raise HTTPException(status_code=404, detail="no recordings for that time")
         shade = int(abs(frame_time) % 200)
         return Response(content=make_jpeg(shade=shade), media_type="image/jpeg")
+
+    @app.post("/api/faces/{name}/register")
+    async def register_face(name: str, request: Request) -> JSONResponse:
+        if b"filename=" not in await request.body():
+            raise HTTPException(status_code=422, detail="file required")
+        if not state.face_in_view:
+            return JSONResponse({"success": False, "message": "No face was detected."}, status_code=400)
+        state.faces[name] = state.faces.get(name, 0) + 1
+        return JSONResponse({"success": True, "message": "Successfully registered face."})
 
     return app, state

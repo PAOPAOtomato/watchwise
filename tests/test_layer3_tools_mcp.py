@@ -136,6 +136,29 @@ async def test_similar_alerts_reports_signature_recurrence(tool_ctx, store):
     assert result["signature_recurrence"]["dispositions"] == {"downgraded": 3}
 
 
+async def test_similar_alerts_shows_what_the_owner_marked_real(tool_ctx, store):
+    """B-024: live, the tool showed a trusted false-alarm pattern and a history
+    of downgrades but not the owner's Real ruling on that kind of event."""
+    signature = "webcam|person|nozone"
+    for i, (verdict, reason, note) in enumerate([("benign", "a man seated at the desk", ""),
+                                                 ("suspicious", "a man at the desk", "waving both arms at the camera")]):
+        rid = f"own-{i}"
+        store.upsert_alert({"review_id": rid, "camera": "webcam", "start_time": 1.0 + i,
+                            "signature": signature, "labels": ["person"], "zones": []}, "screened")
+        store.record_decision({"review_id": rid, "disposition": "downgraded", "severity": "detection",
+                               "confidence": 0.9, "rationale": "x", "stage": "screened",
+                               "screen": {"verdict": "benign", "confidence": 0.9, "reason": reason}})
+        store.execute("INSERT INTO corrections(review_id, signature, system_verdict, system_conf, human_verdict, "
+                      "note, reviewer, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                      (rid, signature, "benign", 0.9, verdict, note, "t", time.time() + i))
+    result = await SIMILAR_TOOL.run(tool_ctx, {"query": "person", "signature": signature})
+    assert result["owner_rulings"] == [
+        {"owner_marked": "real", "what_was_seen": "waving both arms at the camera"},
+        {"owner_marked": "expected", "what_was_seen": "a man seated at the desk"},
+    ]
+    assert "REAL" in result["interpretation"] and "own frames" in result["interpretation"]
+
+
 # ---------------- category 2: device status ----------------
 
 

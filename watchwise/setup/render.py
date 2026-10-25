@@ -73,6 +73,8 @@ def build_config_dict(
     agent: dict[str, Any] = {"backend": profile.agent_backend or "auto"}
     agent.update({"max_iterations": 6, "max_concurrency": 2, "timeout_s": 180})
     agent.update(profile.tuning.get("agent", {}))
+    gate: dict[str, Any] = {"dedupe_window_s": 60, "never_screen_labels": [], "always_alert_labels": []}
+    gate.update(profile.tuning.get("gate", {}))
     return {
         "profile": profile.name,
         "nvr": {"base_url": nvr_url, "web_url": "${FRIGATE_WEB_URL:-}"},
@@ -87,7 +89,7 @@ def build_config_dict(
         "roles": dict(roles),
         "vlm": vlm,
         "agent": agent,
-        "gate": {"dedupe_window_s": 60, "never_screen_labels": [], "always_alert_labels": []},
+        "gate": gate,
         "decision": {
             "screen_benign_confidence": 0.8,
             "screen_suspicious_confidence": 0.8,

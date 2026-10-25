@@ -38,6 +38,15 @@ from watchwise.types import (
 
 logger = logging.getLogger(__name__)
 
+# Arming states in which nobody is expected to be moving around (D-047).
+ARMED_STATES = ("armed_away", "armed_night")
+
+
+def person_while_armed(ctx: AlertContext, arming: str | None) -> bool:
+    """A person in view while nobody should be: tier 2 and memory may not
+    dismiss it; tier 3, which reads arming and the duty roster, may."""
+    return arming in ARMED_STATES and any(label.lower() == "person" for label in ctx.labels)
+
 
 class DecisionPolicy:
     def __init__(self, settings: DecisionSettings):
@@ -96,7 +105,7 @@ class DecisionPolicy:
             stage=Stage.INGESTED,
         )
 
-    # ---------------- Frigate's summary of the whole event ----------------
+    # ---------------- the summary of the whole event ----------------
 
     def with_summary(self, decision: Decision, summary: ReviewSummary) -> Decision:
         """Attach what happened over the whole event (D-045). A suspicious or
@@ -117,7 +126,7 @@ class DecisionPolicy:
                 severity=Severity.ALERT,
                 confidence=summary.confidence,
                 rationale=(
-                    f"raised: Frigate's review of the whole event rated it {rating}. "
+                    f"raised: the review of the whole event rated it {rating}. "
                     f"{summary.short_summary}"
                 ),
                 stage=Stage.SUMMARIZED,
@@ -128,17 +137,51 @@ class DecisionPolicy:
             )
         return replace(decision, summary=text)
 
+    # ---------------- faces (D-057) ----------------
+
+    def recognized(self, decision: Decision, names: list[str], score: float = 0.0) -> Decision:
+        """Someone on the household list, recognized while at home: held back,
+        whatever any model thought (an alert already sent is edited)."""
+        return replace(
+            decision,
+            disposition=Disposition.DOWNGRADED,
+            severity=Severity.DETECTION,
+            confidence=score,
+            rationale=f"recognized as {', '.join(names)} by Frigate's face recognition",
+            stage=Stage.FACE,
+        )
+
+    def unknown_face(self, decision: Decision) -> Decision:
+        """A face the NVR could not match to anyone: raises, never lowers."""
+        if decision.disposition not in (Disposition.DOWNGRADED, Disposition.SUPPRESSED):
+            return decision
+        return replace(
+            decision,
+            disposition=Disposition.ALERTED,
+            severity=Severity.ALERT,
+            confidence=0.0,
+            rationale="a face Frigate's face recognition could not match to anyone it knows",
+            stage=Stage.FACE,
+        )
+
     # ---------------- after tier 2 ----------------
 
-    def from_screening(self, ctx: AlertContext, screen: ScreenResult) -> tuple[Decision, bool]:
+    def from_screening(
+        self, ctx: AlertContext, screen: ScreenResult, *, arming: str | None = None
+    ) -> tuple[Decision, bool]:
         """Returns (decision, needs_investigation).
 
         A decision is always produced, even when an investigation is queued:
         the alert has to be routed *now*, and tier 3 refines it later.
         """
         s = self.settings
+        armed_person = person_while_armed(ctx, arming)
 
-        if screen.verdict is Verdict.BENIGN and screen.confidence >= s.screen_benign_confidence:
+        if (
+            screen.verdict is Verdict.BENIGN
+            and screen.confidence >= s.screen_benign_confidence
+            and not armed_person
+        ):
             return (
                 Decision(
                     review_id=ctx.review_id,
@@ -158,7 +201,9 @@ class DecisionPolicy:
             and screen.confidence >= s.screen_suspicious_confidence
         ):
             # Surface immediately; still investigate, because the human wants
-            # context with the alert, not just the alert.
+            # context with the alert, not just the alert -- unless it is what
+            # the owner asked to be told about (D-056): live, an investigation
+            # agreed it matched and still called it harmless.
             return (
                 Decision(
                     review_id=ctx.review_id,
@@ -170,7 +215,7 @@ class DecisionPolicy:
                     screen=screen,
                     matched_memory_ids=list(screen.memory_ids),
                 ),
-                True,
+                not screen.owner_real,
             )
 
         # Everything else is the escalation case the cascade exists for.
@@ -181,7 +226,11 @@ class DecisionPolicy:
                 severity=Severity.ALERT,
                 confidence=screen.confidence,
                 rationale=(
-                    f"tier-2 screening was not confident ({screen.verdict.value} @ "
+                    f"a person in view while {arming.replace('_', ' ')}: tier 2 saw "
+                    f"{screen.verdict.value} @ {screen.confidence:.2f} ({screen.reason}), but "
+                    "only an investigation may clear it. Alerting now; investigation in progress."
+                    if armed_person and screen.verdict is Verdict.BENIGN
+                    else f"tier-2 screening was not confident ({screen.verdict.value} @ "
                     f"{screen.confidence:.2f}): {screen.reason}. Alerting now; "
                     "investigation in progress."
                 ),
@@ -201,6 +250,49 @@ class DecisionPolicy:
         inv: Investigation,
         *,
         matched_memory_ids: list[str] | None = None,
+        arming: str | None = None,
+        roster_expects: bool = False,
+        recently_real: bool = False,
+    ) -> Decision:
+        decision = self._from_investigation(ctx, screen, inv, matched_memory_ids)
+        if (
+            person_while_armed(ctx, arming)
+            and not roster_expects
+            and decision.disposition in (Disposition.DOWNGRADED, Disposition.SUPPRESSED)
+        ):
+            # D-049: while nobody should be home, only the duty roster may
+            # clear a person; "it looked routine before" may not.
+            assert arming is not None
+            return replace(
+                decision,
+                disposition=Disposition.ESCALATED_HUMAN,
+                severity=Severity.ALERT,
+                rationale=(
+                    f"a person in view while {arming.replace('_', ' ')}, and the duty roster "
+                    f"expects nobody here now, so you decide. The investigation leaned "
+                    f"benign ({inv.confidence:.2f}): {inv.conclusion}"
+                ),
+            )
+        if recently_real and decision.disposition is Disposition.SUPPRESSED:
+            # D-052: the owner recently marked this kind of event real, so a
+            # benign investigation may demote it but not hide it.
+            return replace(
+                decision,
+                disposition=Disposition.DOWNGRADED,
+                severity=Severity.DETECTION,
+                rationale=(
+                    f"you recently marked this kind of event real, so it stays visible. "
+                    f"The investigation found it benign ({inv.confidence:.2f}): {inv.conclusion}"
+                ),
+            )
+        return decision
+
+    def _from_investigation(
+        self,
+        ctx: AlertContext,
+        screen: ScreenResult | None,
+        inv: Investigation,
+        matched_memory_ids: list[str] | None,
     ) -> Decision:
         s = self.settings
         base = dict(

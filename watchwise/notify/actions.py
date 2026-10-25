@@ -23,6 +23,7 @@ from watchwise.memory.store import Store
 from watchwise.notify.presenter import (
     STAGE_LABELS,
     TEXT_LIMIT,
+    being_investigated,
     context_from_row,
     decision_from_row,
     keyboard_for,
@@ -31,9 +32,13 @@ from watchwise.notify.presenter import (
 from watchwise.sinks import MemorySink
 from watchwise.tier3.investigator import InvestigationQueue
 from watchwise.timeutil import safe_strftime
-from watchwise.types import Stage
 
 INVESTIGATING_FOOTER = "🔎 Investigating at your request; this message will update."
+ASK_WHY = (
+    "🚨 Noted as real. <b>What was wrong?</b> Reply in a few words, e.g. "
+    "“waving both arms at the camera”, and I'll look for it next time. (Optional.)"
+)
+NOTE_LIMIT = 200
 
 
 @dataclass
@@ -42,6 +47,7 @@ class ActionOutcome:
     footer: str | None = None  # None: leave the card's footer as it is
     keyboard: str | None = None  # None: leave the card's keyboard as it is
     reply: str | None = None  # an extra message (Telegram HTML)
+    ask_note: int | None = None  # a correction the owner may describe in their own words
 
 
 class ActionHandler:
@@ -99,7 +105,24 @@ class ActionHandler:
             toast,
             footer=self._learned(row, result.human_verdict, result.pattern_id),
             keyboard=f"after_feedback:{result.correction_id}",
+            ask_note=result.correction_id if verdict == "suspicious" else None,
         )
+
+    def remember_note_request(self, chat_id: int | str, message_id: int, correction_id: int) -> None:
+        self.store.add_note_request(chat_id, message_id, correction_id)
+
+    def note_from_reply(self, chat_id: int | str, replied_to: int, text: str) -> str | None:
+        """A reply to a "What was wrong?" question: keep it as that
+        correction's note (D-053). None when the reply was to something else."""
+        correction_id = self.store.note_request(chat_id, replied_to)
+        if correction_id is None:
+            return None
+        note = " ".join(text.split())[:NOTE_LIMIT]
+        if not note:
+            return "That reply was empty, so nothing changed."
+        if not self.store.set_correction_note(correction_id, note):
+            return "That answer was undone, so there's nothing to attach this to."
+        return f"✍️ Thanks. Next time I'll look for: “{html.escape(note, quote=False)}”."
 
     def _learned(self, row: Any, verdict: str, pattern_id: str | None) -> str:
         labels = ", ".join(json.loads(row["labels"] or "[]")) or "activity"
@@ -135,7 +158,8 @@ class ActionHandler:
     def _look(self, row: Any) -> ActionOutcome:
         if row["investigation_id"]:
             return ActionOutcome("Already investigated. Tap Why for the evidence.")
-        if row["stage"] == Stage.SCREENED.value and row["disposition"] == "alerted":
+        decision = decision_from_row(row)
+        if decision is not None and being_investigated(decision):
             return ActionOutcome("Already being investigated; the card will update.")
         if self.investigations is None:
             return ActionOutcome("Investigations are not running.")

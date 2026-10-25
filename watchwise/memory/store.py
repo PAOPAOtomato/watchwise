@@ -131,6 +131,16 @@ CREATE TABLE IF NOT EXISTS snoozes (
     camera          TEXT PRIMARY KEY,
     until           REAL NOT NULL
 );
+
+-- "What was wrong?" questions sent after a Real tap: a reply to one of these
+-- messages becomes that correction's note (D-053).
+CREATE TABLE IF NOT EXISTS note_requests (
+    chat_id         TEXT NOT NULL,
+    message_id      INTEGER NOT NULL,
+    correction_id   INTEGER NOT NULL,
+    created_at      REAL NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
 """
 
 
@@ -285,6 +295,53 @@ class Store:
     def snoozed_until(self, camera: str) -> float | None:
         row = self.query_one("SELECT until FROM snoozes WHERE camera=?", (camera,))
         return float(row["until"]) if row else None
+
+    def correction_examples(self, signature: str, limit: int = 8) -> list[tuple[str, str]]:
+        """(human verdict, what was seen) for recent corrections of this kind of
+        event, newest first. What was seen is the owner's own note, else the
+        alert's whole-event summary, else its screening reason, read now, so a
+        later note or summary counts. A screening reason that called a Real
+        event benign is left out: it argues the opposite of the owner (D-053)."""
+        rows = self.query(
+            "SELECT c.human_verdict AS verdict, c.note AS note, a.summary AS summary, "
+            "a.screen_json AS screen "
+            "FROM corrections c JOIN alerts a ON a.review_id = c.review_id "
+            "WHERE c.signature=? ORDER BY c.created_at DESC LIMIT ?",
+            (signature, limit),
+        )
+        examples = []
+        for row in rows:
+            text = (row["note"] or "").strip() or row["summary"]
+            if not text and row["screen"]:
+                try:
+                    screen = json.loads(row["screen"]) or {}
+                except ValueError:
+                    screen = {}
+                if not (row["verdict"] == "suspicious" and screen.get("verdict") == "benign"):
+                    text = screen.get("reason")
+            if text:
+                examples.append((str(row["verdict"]), str(text)))
+        return examples
+
+    def add_note_request(self, chat_id: int | str, message_id: int, correction_id: int) -> None:
+        self.execute(
+            "INSERT OR REPLACE INTO note_requests(chat_id, message_id, correction_id, created_at) "
+            "VALUES (?,?,?,?)",
+            (str(chat_id), int(message_id), int(correction_id), time.time()),
+        )
+
+    def note_request(self, chat_id: int | str, message_id: int) -> int | None:
+        """The correction a "What was wrong?" message asked about, if any."""
+        row = self.query_one(
+            "SELECT correction_id FROM note_requests WHERE chat_id=? AND message_id=?",
+            (str(chat_id), int(message_id)),
+        )
+        return int(row["correction_id"]) if row else None
+
+    def set_correction_note(self, correction_id: int, note: str) -> bool:
+        """False when the correction is gone (undone)."""
+        cur = self.execute("UPDATE corrections SET note=? WHERE id=?", (note, int(correction_id)))
+        return cur.rowcount > 0
 
     def get_alert(self, review_id: str) -> sqlite3.Row | None:
         return self.query_one("SELECT * FROM alerts WHERE review_id=?", (review_id,))

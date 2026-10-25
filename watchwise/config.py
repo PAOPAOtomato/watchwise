@@ -83,6 +83,14 @@ class GateSettings(BaseModel):
     # A pattern must have this many confirmed human corrections before it is
     # trusted to auto-suppress on its own.
     memory_min_corrections: int = 3
+    # Memory never holds back a kind of event (camera, labels, zones) that a
+    # human marked "real" within this many days.
+    real_veto_days: float = 30.0
+    # free: a trusted routine is held back here, before any model looks (it
+    # can only compare camera, labels and zones). model_checked: never here;
+    # the screener sees descriptions of the events the owner marked expected
+    # or real and decides whether this one matches (one model call per event).
+    memory_mode: Literal["free", "model_checked"] = "free"
 
 
 class ModelEndpoint(BaseModel):
@@ -103,6 +111,9 @@ class ModelEndpoint(BaseModel):
     context_window: int | None = None
     # Ollama only: how long to keep the model loaded between calls.
     keep_alive: str | None = None
+    # Ollama only: false turns off a thinking model's hidden reasoning (a
+    # large share of its time per call); unset leaves the model's default.
+    think: bool | None = None
     # Reasoning depth / spend; unset means the model default. Anthropic: the
     # effort setting. OpenAI-compatible: sent as reasoning_effort (dropped
     # automatically if the server does not accept it).
@@ -142,6 +153,14 @@ class VLMSettings(BaseModel):
     max_tokens: int = 1024
     # Concurrency cap so N cameras cannot stampede one GPU.
     max_concurrency: int = 2
+    # When an event ends, this many frames spread across all of it go to the
+    # screener model for a "What happened" summary on the card (one extra call
+    # per event). 0 turns it off.
+    summary_frames: int = 4
+    # Things the summary should watch for and name.
+    summary_concerns: list[str] = Field(
+        default_factory=lambda: ["Unusual or erratic behaviour or gestures by a person"]
+    )
     context_window: int | None = None
     keep_alive: str | None = None
     effort: Effort | None = None
@@ -222,6 +241,8 @@ class TelegramSettings(BaseModel):
     # Which dispositions produce a card.
     notify_on: list[NotifyOn] = Field(default_factory=lambda: ["alerted", "escalated_human"])
     snooze_minutes: int = 60
+    # After 🚨 Real, ask "What was wrong?"; the reply teaches what to look for.
+    ask_why_on_real: bool = True
     # Pause between messages to one chat (Telegram asks for <= 1/s per chat).
     min_interval_s: float = 1.0
     poll_timeout_s: int = 30
@@ -240,6 +261,22 @@ class NotifySettings(BaseModel):
     mqtt: MQTTPublishSettings = Field(default_factory=MQTTPublishSettings)
     # POST every verdict as JSON to this URL.
     webhook_url: str | None = None
+
+
+class FaceSettings(BaseModel):
+    """Who lives here, as the NVR's face recognition knows them (D-057).
+
+    Recognition runs in the NVR (Frigate's Face Library), on this machine;
+    Watchwise only reads the names it reports. A recognized name appears in
+    card text, which Telegram relays.
+    """
+
+    # Names exactly as in the NVR's Face Library. Empty: faces change nothing.
+    household: list[str] = Field(default_factory=list)
+    # A face the NVR saw but could not match to anyone raises the event when it ends.
+    alert_on_unknown: bool = True
+    # Attempts without any match before a face counts as unknown.
+    min_unknown_attempts: int = Field(default=2, ge=1)
 
 
 class DutyRosterSettings(BaseModel):
@@ -272,6 +309,7 @@ class WatchwiseConfig(BaseModel):
     decision: DecisionSettings = Field(default_factory=DecisionSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
     duty_roster: DutyRosterSettings = Field(default_factory=DutyRosterSettings)
+    faces: FaceSettings = Field(default_factory=FaceSettings)
     service: ServiceSettings = Field(default_factory=ServiceSettings)
 
     @model_validator(mode="after")

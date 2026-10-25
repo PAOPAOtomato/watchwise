@@ -500,3 +500,17 @@ def test_compose_files_parse_and_wire_the_services():
     assert frigate_cfg["mqtt"]["topic_prefix"] == WatchwiseConfig().mqtt.topic_prefix
     # Frigate runs no object detection (so it never alerts) unless it is enabled.
     assert all(camera["detect"]["enabled"] for camera in frigate_cfg["cameras"].values())
+
+
+def test_gpu_profiles_check_learned_routines_with_the_model(catalog):
+    """D-051: GPU profiles use model-checked memory; CPU and cloud keep the free gate."""
+    def gate_of(name):
+        profile = catalog.profiles[name]
+        models, roles = resolve(profile, _fake_cloud() if profile.needs_cloud else None)
+        text = render_config(profile, build_config_dict(profile, models, roles))
+        return WatchwiseConfig.model_validate(interpolate_env(yaml.safe_load(text), env={})).gate
+
+    for name in ("nvidia", "nvidia-16gb", "apple-silicon", "apple-silicon-8gb", "amd-rocm"):
+        assert gate_of(name).memory_mode == "model_checked", name
+    for name in ("cpu-local", "cpu-hybrid", "cloud", "demo"):
+        assert gate_of(name).memory_mode == "free", name

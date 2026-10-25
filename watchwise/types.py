@@ -51,6 +51,7 @@ class Stage(str, Enum):
     SCREENED = "screened"  # tier 2 VLM ran
     INVESTIGATED = "investigated"  # tier 3 agent ran
     SUMMARIZED = "summarized"  # raised by the NVR's review of the whole event
+    FACE = "face"  # decided by the NVR's face recognition (D-057)
 
 
 @dataclass(slots=True)
@@ -110,6 +111,10 @@ class AlertContext:
         return d
 
 
+# The screener's tag for "this resembles what the owner marked real" (D-055).
+OWNER_REAL_TAG = "owner_real"
+
+
 @dataclass(slots=True)
 class ScreenResult:
     """Tier-2 output."""
@@ -126,6 +131,11 @@ class ScreenResult:
     error: str | None = None
     # Learned patterns the model was shown that a correction should score.
     memory_ids: list[str] = field(default_factory=list)
+
+    @property
+    def owner_real(self) -> bool:
+        """The screener saw what the owner marked real (D-055)."""
+        return OWNER_REAL_TAG in {t.lower() for t in self.tags}
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)

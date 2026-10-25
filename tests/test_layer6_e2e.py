@@ -8,6 +8,7 @@ repeated false alarm stops reaching a human after enough human corrections.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -328,6 +329,7 @@ async def test_corrections_from_the_phone_alone_teach_the_gate(system):
 
 async def test_a_pattern_that_starts_being_wrong_loses_its_authority(system):
     """The safety valve on auto-suppression."""
+    system.arming.set("armed_home")  # while armed, memory may not hold a person back (D-047)
     alert_kwargs = dict(camera="cam_yard", labels=["person"], zones=["perimeter"])
     pattern_id = None
     for i in range(4):
@@ -622,3 +624,289 @@ async def test_a_summary_for_an_event_never_seen_is_judged_with_it(system):
     decision = await system.pipeline.handle(_summary_report(alert, level=0, text="A cat crosses the lawn."))
     assert decision.stage is Stage.SCREENED and decision.summary.endswith("A cat crosses the lawn.")
     assert system.pipeline.metrics["vlm_calls"] >= 1
+
+
+async def test_a_learned_routine_never_hides_a_person_while_armed(system):
+    """D-047: "a person at the desk is routine" was learned at home; away, it isn't."""
+    system.arming.set("armed_home")
+    kwargs = dict(camera="cam_door", labels=["person"], zones=["hall"])
+    for i in range(3):
+        review_id = f"desk-{i}"
+        await system.pipeline.handle(_alert(review_id, ts=DAY_TS + 100_000 + i * 3600, **kwargs))
+        system.feedback.submit(review_id, "benign", reviewer="telegram:tester",
+                               influenced_pattern_ids=list(system.memory_sink.latest(review_id).matched_memory_ids))
+    at_home = await system.pipeline.handle(_alert("desk-3", ts=DAY_TS + 100_000 + 3 * 3600, **kwargs))
+    assert at_home.stage is Stage.GATED, "at home, the learned routine holds"
+
+    system.arming.set("armed_away")
+    away = await system.pipeline.handle(_alert("desk-4", ts=DAY_TS + 100_000 + 4 * 3600, **kwargs))
+    assert away.stage is not Stage.GATED, "away, a person always gets a model's look"
+
+
+async def test_a_recent_real_keeps_that_kind_of_event_in_front_of_the_screener(system):
+    """D-048 (B-020): memory can't tell a gesture from sitting, only that two
+    events looked alike; a recent "real" stops it holding that kind back."""
+    kwargs = dict(camera="cam_yard", labels=["cat"], zones=["lawn"])
+
+    async def corrected(i: int, verdict: str) -> None:
+        review_id = f"veto-{i}"
+        await system.pipeline.handle(_alert(review_id, ts=DAY_TS + 200_000 + i * 3600, **kwargs))
+        system.feedback.submit(review_id, verdict, reviewer="telegram:tester",
+                               influenced_pattern_ids=list(system.memory_sink.latest(review_id).matched_memory_ids))
+
+    await corrected(0, "suspicious")  # the unusual one, marked real
+    for i in (1, 2, 3):
+        await corrected(i, "benign")
+    trusted = [p for p in system.patterns.all_patterns("false_alarm") if p["corrections"] >= 3]
+    assert trusted, "the routine was learned"
+
+    vetoed = await system.pipeline.handle(_alert("veto-4", ts=DAY_TS + 200_000 + 4 * 3600, **kwargs))
+    assert vetoed.stage is not Stage.GATED
+
+    system.config.gate.real_veto_days = 0  # no veto: the learned routine would hold it back
+    held = await system.pipeline.handle(_alert("veto-5", ts=DAY_TS + 200_000 + 5 * 3600, **kwargs))
+    assert held.stage is Stage.GATED and "known false-alarm pattern" in held.rationale
+
+
+# ---------------- Watchwise's own whole-event summary (M1-18, D-046) ----------------
+
+
+class TwoQuestionVLM(VLMBackend):
+    """Screens as told, and describes the whole event as told."""
+
+    name = "two-question"
+
+    def __init__(self, verdict: str, summary: str | None, level: int = 0):
+        super().__init__("two-question-vlm")
+        self.verdict, self.summary, self.level = verdict, summary, level
+        self.summary_frames: list[int] = []
+
+    async def infer(self, frames, prompt, system):
+        from watchwise.tier2 import prompts
+
+        if system == prompts.SUMMARY_SYSTEM:
+            self.summary_frames.append(len(frames))
+            if self.summary is None:
+                raise RuntimeError("no description today")
+            return json.dumps({"title": "Person in the yard", "summary": self.summary,
+                               "threat_level": self.level, "confidence": 0.8})
+        return json.dumps({"verdict": self.verdict, "confidence": 0.95, "reason": "a cat"})
+
+
+def _report(kind: str, review_id: str, **kwargs) -> AlertContext:
+    ctx = _alert(review_id, **kwargs)
+    ctx.raw = {"type": kind}
+    if kind == "new":
+        ctx.end_time = None
+    return ctx
+
+
+async def test_the_end_of_an_event_brings_a_summary_of_all_of_it(system):
+    system.screener.vlm = TwoQuestionVLM("benign", "A cat crosses the lawn and jumps the fence.")
+    kwargs = dict(camera="cam_yard", labels=["cat"], ts=DAY_TS + 300_000, duration=40.0)
+    started = await system.pipeline.handle(_report("new", "whole-1", **kwargs))
+    assert started.summary is None and system.screener.vlm.summary_frames == []
+
+    ended = await system.pipeline.handle(_report("end", "whole-1", **kwargs))
+    assert ended.disposition is Disposition.DOWNGRADED
+    assert ended.summary == "Person in the yard. A cat crosses the lawn and jumps the fence."
+    assert system.screener.vlm.summary_frames == [4]
+    assert system.store.get_alert("whole-1")["summary"] == ended.summary
+
+
+async def test_a_worrying_summary_raises_what_the_first_look_downgraded(system):
+    system.screener.vlm = TwoQuestionVLM("benign", "A person crouches by the back door, then hides.", level=1)
+    kwargs = dict(camera="cam_yard", labels=["cat"], ts=DAY_TS + 310_000, duration=60.0)
+    await system.pipeline.handle(_report("new", "whole-2", **kwargs))
+    raised = await system.pipeline.handle(_report("end", "whole-2", **kwargs))
+    assert (raised.disposition, raised.stage) == (Disposition.ALERTED, Stage.SUMMARIZED)
+
+
+async def test_without_a_summary_nothing_changes(system):
+    system.screener.vlm = TwoQuestionVLM("benign", None)
+    kwargs = dict(camera="cam_yard", labels=["cat"], ts=DAY_TS + 320_000)
+    first = await system.pipeline.handle(_report("new", "whole-3", **kwargs))
+    after = await system.pipeline.handle(_report("end", "whole-3", **kwargs))
+    assert after.disposition is first.disposition and after.summary is None
+
+
+async def test_an_investigation_clears_a_person_while_away_only_on_the_roster(system, tmp_path):
+    """D-049: the cleaner on the roster may be cleared; anyone else goes to you."""
+    from watchwise.tools.duty_roster import DutyRoster
+    from watchwise.types import Investigation
+
+    roster_path = tmp_path / "roster.yml"
+    roster_path.write_text(
+        "entries:\n  - name: cleaner\n    days: [mon, tue, wed, thu, fri, sat, sun]\n"
+        '    start: "00:00"\n    end: "23:59"\n    cameras: [cam_door]\n    labels: [person]\n'
+        '    expect: "contract cleaner"\n'
+    )
+    system.pipeline.roster = DutyRoster(roster_path)
+    system.arming.set("armed_away")
+    benign = dict(verdict=Verdict.BENIGN, confidence=0.98, conclusion="looks routine")
+
+    cleaner = _alert("ros-1", camera="cam_door", labels=["person"], ts=DAY_TS + 400_000)
+    await system.pipeline._on_investigation_done(cleaner, Investigation(id="i1", review_id="ros-1", camera="cam_door", **benign))
+    assert system.memory_sink.latest("ros-1").disposition is Disposition.SUPPRESSED
+
+    stranger = _alert("ros-2", camera="cam_yard", labels=["person"], ts=DAY_TS + 400_000)
+    await system.pipeline._on_investigation_done(stranger, Investigation(id="i2", review_id="ros-2", camera="cam_yard", **benign))
+    assert system.memory_sink.latest("ros-2").disposition is Disposition.ESCALATED_HUMAN
+
+
+async def test_a_checked_routine_shows_the_screener_what_the_owner_meant(system):
+    """D-051, end to end: three Expected taps and one Real on the same kind of
+    event; the next one isn't held back by the gate, and the screener is shown
+    what was seen in each, so it can tell sitting from gesturing."""
+    system.config.gate.memory_mode = "model_checked"
+    system.config.gate.real_veto_days = 0  # isolate D-051 from D-048
+    system.arming.set("armed_home")
+    prompts_seen: list[str] = []
+
+    class Describing(VLMBackend):
+        name = "describing"
+
+        def __init__(self):
+            super().__init__("describing-vlm")
+            self.reasons = iter(["a man seated at the desk, looking down"] * 3
+                                + ["a man waving both arms at the camera"] + ["a man seated at the desk"] * 5)
+
+        async def infer(self, frames, prompt, system):
+            prompts_seen.append(prompt)
+            return json.dumps({"verdict": "benign", "confidence": 0.95, "reason": next(self.reasons)})
+
+    system.screener.vlm = Describing()
+    kwargs = dict(camera="cam_door", labels=["person"], zones=["hall"])
+    for i, verdict in enumerate(["benign", "benign", "benign", "suspicious"]):
+        review_id = f"chk-{i}"
+        await system.pipeline.handle(_alert(review_id, ts=DAY_TS + 500_000 + i * 3600, **kwargs))
+        system.feedback.submit(review_id, verdict, reviewer="telegram:tester",
+                               note="waving both arms at the camera" if verdict == "suspicious" else "",
+                               influenced_pattern_ids=list(system.memory_sink.latest(review_id).matched_memory_ids))
+
+    nxt = await system.pipeline.handle(_alert("chk-4", ts=DAY_TS + 500_000 + 4 * 3600, **kwargs))
+    assert nxt.stage is Stage.SCREENED, "a routine is checked by the model, not held back blind"
+    prompt = prompts_seen[-1]
+    assert 'marked expected: "a man seated at the desk, looking down"' in prompt
+    assert 'marked real: "waving both arms at the camera"' in prompt, "the owner's words (D-053)"
+    assert "a man waving both arms" not in prompt, "not the first look's benign reason"
+
+
+async def test_after_a_real_tap_an_investigation_demotes_instead_of_hiding(system):
+    """D-052, end to end: the owner marks one event real; a later benign
+    investigation of the same kind of event leaves the card visible."""
+    from watchwise.types import Investigation
+
+    system.arming.set("armed_home")
+    kwargs = dict(camera="cam_door", labels=["person"], zones=["hall"])
+    benign = dict(verdict=Verdict.BENIGN, confidence=0.98, conclusion="a person already visible earlier")
+
+    await system.pipeline.handle(_alert("rv-0", ts=DAY_TS + 600_000, **kwargs))
+    system.feedback.submit("rv-0", "suspicious", reviewer="telegram:tester")
+
+    later = _alert("rv-1", ts=DAY_TS + 603_600, **kwargs)
+    await system.pipeline._on_investigation_done(later, Investigation(id="i1", review_id="rv-1", camera="cam_door", **benign))
+    kept = system.memory_sink.latest("rv-1")
+    assert kept.disposition is Disposition.DOWNGRADED
+    assert kept.rationale.startswith("you recently marked this kind of event real")
+
+    system.config.gate.real_veto_days = 0  # the veto off: the old behaviour
+    other = _alert("rv-2", ts=DAY_TS + 607_200, **kwargs)
+    await system.pipeline._on_investigation_done(other, Investigation(id="i2", review_id="rv-2", camera="cam_door", **benign))
+    assert system.memory_sink.latest("rv-2").disposition is Disposition.SUPPRESSED
+
+
+async def test_the_demo_reproduces_its_published_numbers():
+    """The README and the website quote `watchwise demo`: 38 -> 6 (simulated),
+    with no genuine alert hidden. D-047 silently changed it to 38 -> 28 because
+    the demo ran 'armed away' through a day of residents at the door (D-054)."""
+    from datetime import timedelta
+
+    from watchwise.demo import DAY_START, household, run_demo
+
+    assert household((DAY_START + timedelta(hours=23)).timestamp()) == "armed_night"
+    assert household((DAY_START + timedelta(hours=12)).timestamp()) == "armed_home"
+    result = await run_demo(out=lambda *_: None)
+    assert (result.alerts, result.cold_surfaced, result.warm_surfaced) == (60, 38, 6)
+    assert result.patterns_learned == 3 and result.genuine_hidden == []
+
+
+# ---------------- faces (D-057) ----------------
+
+
+def _faced(kind: str, review_id: str, *, sub_labels=(), **kwargs) -> AlertContext:
+    ctx = _report(kind, review_id, camera="cam_door", labels=["person"], **kwargs)
+    ctx.event_ids = [f"{review_id}-obj"]
+    ctx.sub_labels = list(sub_labels)
+    return ctx
+
+
+async def test_a_household_member_recognized_at_home_is_held_back(system):
+    """The card that went out before Frigate named them is edited; nothing
+    afterwards (the investigation, the end of the event) raises it again."""
+    from watchwise.types import Investigation
+
+    system.config.faces.household = ["Rui"]
+    system.arming.set("armed_home")
+    system.screener.vlm = TwoQuestionVLM("uncertain", "A man waves at the camera.", level=1)
+    kwargs = dict(ts=DAY_TS + 700_000, duration=30.0)
+    first = await system.pipeline.handle(_faced("new", "face-1", **kwargs))
+    assert first.disposition is Disposition.ALERTED
+
+    named = await system.pipeline.handle(_faced("update", "face-1", sub_labels=["rui"], **kwargs))
+    assert (named.disposition, named.stage) == (Disposition.DOWNGRADED, Stage.FACE)
+    assert named.rationale == "recognized as Rui by Frigate's face recognition"
+
+    late = _faced("new", "face-1", **kwargs)
+    await system.pipeline._on_investigation_done(late, Investigation(
+        id="i", review_id="face-1", camera="cam_door", verdict=Verdict.SUSPICIOUS, confidence=0.9, conclusion="x"))
+    ended = await system.pipeline.handle(_faced("end", "face-1", sub_labels=["rui"], **kwargs))
+    assert system.memory_sink.latest("face-1").stage is Stage.FACE and ended.disposition is Disposition.DOWNGRADED
+    assert system.screener.vlm.summary_frames == [], "no summary is spent on a recognized resident"
+    assert system.pipeline.metrics["held_by_face"] == 1
+
+
+async def test_a_face_nobody_matches_raises_the_event_at_its_end(system):
+    system.config.faces.household = ["rui"]
+    system.arming.set("armed_home")
+    system.screener.vlm = TwoQuestionVLM("benign", None)
+    for review_id, attempts, name in (("unk-1", 2, None), ("unk-2", 1, None), ("unk-3", 3, "guest_bob")):
+        kwargs = dict(ts=DAY_TS + 710_000, duration=20.0)
+        assert (await system.pipeline.handle(_faced("new", review_id, **kwargs))).disposition is Disposition.DOWNGRADED
+        for _ in range(attempts):
+            system.pipeline.note_face({"type": "face", "id": f"{review_id}-obj", "name": name, "score": 0.5})
+        await system.pipeline.handle(_faced("end", review_id, **kwargs))
+    raised = system.memory_sink.latest("unk-1")
+    assert (raised.disposition, raised.stage) == (Disposition.ALERTED, Stage.FACE)
+    assert "could not match to anyone" in raised.rationale
+    assert system.memory_sink.latest("unk-2").disposition is Disposition.DOWNGRADED, "one bad angle is not enough"
+    assert system.memory_sink.latest("unk-3").disposition is Disposition.DOWNGRADED, "a known non-resident"
+
+
+async def test_while_away_a_recognized_resident_counts_like_the_roster(system):
+    from watchwise.types import Investigation
+
+    system.config.faces.household = ["rui"]
+    system.arming.set("armed_away")
+    benign = dict(verdict=Verdict.BENIGN, confidence=0.98, conclusion="looks routine")
+    named = _faced("update", "away-1", sub_labels=["rui"], ts=DAY_TS + 720_000)
+    await system.pipeline.handle(named)
+    assert system.memory_sink.latest("away-1").stage is not Stage.FACE, "armed: not held back"
+    await system.pipeline._on_investigation_done(named, Investigation(id="i1", review_id="away-1", camera="cam_door", **benign))
+    assert system.memory_sink.latest("away-1").disposition is Disposition.SUPPRESSED
+
+    stranger = _faced("update", "away-2", ts=DAY_TS + 720_000)
+    await system.pipeline.handle(stranger)
+    await system.pipeline._on_investigation_done(stranger, Investigation(id="i2", review_id="away-2", camera="cam_door", **benign))
+    assert system.memory_sink.latest("away-2").disposition is Disposition.ESCALATED_HUMAN
+
+
+async def test_without_a_household_list_faces_change_nothing(system):
+    system.arming.set("armed_home")
+    system.screener.vlm = TwoQuestionVLM("uncertain", None)
+    decision = await system.pipeline.handle(_faced("new", "none-1", sub_labels=["rui"], ts=DAY_TS + 730_000))
+    assert decision.stage is not Stage.FACE
+    system.pipeline.note_face({"type": "face", "id": "none-1-obj", "name": None})
+    system.pipeline.note_face({"type": "face", "id": "none-1-obj", "name": None})
+    ended = await system.pipeline.handle(_faced("end", "none-1", ts=DAY_TS + 730_000))
+    assert ended.stage is not Stage.FACE

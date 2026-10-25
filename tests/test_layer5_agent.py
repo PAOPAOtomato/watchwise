@@ -467,3 +467,75 @@ def test_frigates_summary_can_raise_but_never_lower(policy, disposition, level, 
     assert result.summary == "Person at the window. Someone tries the window."
     if expected is not disposition:
         assert result.stage is Stage.SUMMARIZED and "rated it" in result.rationale
+
+
+@pytest.mark.parametrize(
+    "arming, labels, expected",
+    [
+        ("armed_away", ["person"], Disposition.ALERTED),
+        ("armed_night", ["person", "car"], Disposition.ALERTED),
+        ("armed_home", ["person"], Disposition.DOWNGRADED),
+        ("disarmed", ["person"], Disposition.DOWNGRADED),
+        ("armed_away", ["cat"], Disposition.DOWNGRADED),
+        (None, ["person"], Disposition.DOWNGRADED),
+    ],
+)
+def test_a_person_while_armed_is_never_dismissed_by_screening(policy, arming, labels, expected):
+    """D-047: only an investigation (which reads arming and the roster) may clear it."""
+    screen = ScreenResult(verdict=Verdict.BENIGN, confidence=0.98, reason="a person at a desk")
+    decision, investigate = policy.from_screening(make_alert(labels=labels), screen, arming=arming)
+    assert decision.disposition is expected
+    assert investigate is (expected is Disposition.ALERTED)
+    if expected is Disposition.ALERTED:
+        assert decision.rationale.startswith("a person in view while armed")
+
+
+@pytest.mark.parametrize(
+    "arming, labels, roster_expects, expected",
+    [
+        ("armed_away", ["person"], False, Disposition.ESCALATED_HUMAN),
+        ("armed_night", ["person"], False, Disposition.ESCALATED_HUMAN),
+        ("armed_away", ["person"], True, Disposition.SUPPRESSED),
+        ("armed_home", ["person"], False, Disposition.SUPPRESSED),
+        ("armed_away", ["cat"], False, Disposition.SUPPRESSED),
+    ],
+)
+def test_while_armed_only_the_roster_clears_a_person(policy, arming, labels, roster_expects, expected):
+    """D-049 (B-022): live, the investigator cleared the user walking past while
+    armed away, on the history of desk walks alone."""
+    inv = Investigation(id="i", review_id="r", camera="c", verdict=Verdict.BENIGN,
+                        confidence=0.98, conclusion="matches a recurring false alarm pattern")
+    decision = policy.from_investigation(make_alert(labels=labels), None, inv,
+                                         arming=arming, roster_expects=roster_expects)
+    assert decision.disposition is expected
+    if expected is Disposition.ESCALATED_HUMAN:
+        assert "duty roster expects nobody" in decision.rationale
+
+
+@pytest.mark.parametrize("tags, investigate", [(["owner_real"], False), (["vehicle"], True)])
+def test_what_the_owner_asked_for_alerts_without_an_investigation(policy, tags, investigate):
+    """D-056: live, the investigator agreed the wave matched the owner's Real
+    example and still called it harmless."""
+    screen = ScreenResult(verdict=Verdict.SUSPICIOUS, confidence=0.95, reason="waving both arms", tags=tags)
+    decision, queued = policy.from_screening(make_alert(labels=["person"]), screen, arming="armed_home")
+    assert decision.disposition is Disposition.ALERTED and queued is investigate
+
+
+@pytest.mark.parametrize(
+    "arming, confidence, expected",
+    [
+        ("armed_home", 0.98, Disposition.DOWNGRADED),  # would have been suppressed
+        ("armed_home", 0.80, Disposition.DOWNGRADED),  # already only demoted
+        ("armed_away", 0.98, Disposition.ESCALATED_HUMAN),  # D-049 is stricter
+    ],
+)
+def test_after_a_recent_real_an_investigation_can_demote_but_not_hide(policy, arming, confidence, expected):
+    """D-052: live, an investigation called a wave that matched the owner's
+    Real example harmless (0.98); the card must stay visible."""
+    inv = Investigation(id="i", review_id="r", camera="c", verdict=Verdict.BENIGN,
+                        confidence=confidence, conclusion="a person already visible earlier")
+    decision = policy.from_investigation(make_alert(labels=["person"]), None, inv,
+                                         arming=arming, recently_real=True)
+    assert decision.disposition is expected
+    if confidence >= 0.95 and expected is Disposition.DOWNGRADED:
+        assert decision.rationale.startswith("you recently marked this kind of event real")

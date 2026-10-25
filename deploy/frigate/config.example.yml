@@ -54,6 +54,16 @@ record:
 #     additional_concerns:
 #       - Unusual or erratic behaviour or gestures by a person
 
+# Optional: Frigate's face recognition, so Watchwise can hold back the people
+# who live here and raise a face nobody matches (list their names under
+# `faces.household` in Watchwise's config, exactly as in Frigate's Face
+# Library). It runs locally; the small model runs on the CPU, after a one-time
+# model download. Add faces in Frigate's web UI: Face Library > Add Face (1-5
+# clear, front-facing photos), then train from the faces it shows you.
+# face_recognition:
+#   enabled: true
+#   model_size: small
+
 cameras:
   front_door: # one block per camera; rename freely
     enabled: false # set to true once the stream URL below is real

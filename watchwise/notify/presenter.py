@@ -40,7 +40,8 @@ STAGE_LABELS = {
     Stage.GATED: "decided by a rule or a learned pattern, no model call",
     Stage.SCREENED: "first look by the vision model",
     Stage.INVESTIGATED: "after an investigation",
-    Stage.SUMMARIZED: "raised by Frigate's review of the whole event",
+    Stage.SUMMARIZED: "raised by the review of the whole event",
+    Stage.FACE: "decided by Frigate's face recognition",
 }
 INVESTIGATING = "🔎 Investigating with the forensic tools; this message will update."
 ANALYZING = "⏳ Analyzing the frames; this message will update with the verdict."
@@ -106,13 +107,10 @@ def build_card(ctx: AlertContext, decision: Decision) -> AlertCard:
     if _analyzing(decision):
         lines = [ANALYZING]
     else:
-        lines = [
-            f"Why: {plain_reason(decision)}",
-            f"Confidence {decision.confidence:.2f} · {STAGE_LABELS.get(decision.stage, decision.stage.value)}",
-        ]
+        lines = [f"Why: {plain_reason(decision)}", _confidence_line(decision)]
     if decision.summary:
         lines.insert(1, f"What happened: {decision.summary}")
-    if _investigating(decision):
+    if being_investigated(decision):
         lines.append(INVESTIGATING)
     return AlertCard(
         review_id=ctx.review_id,
@@ -123,9 +121,29 @@ def build_card(ctx: AlertContext, decision: Decision) -> AlertCard:
     )
 
 
-def _investigating(decision: Decision) -> bool:
-    # The policy queues an investigation for every alert raised at screening.
-    return decision.stage is Stage.SCREENED and decision.disposition is Disposition.ALERTED
+def being_investigated(decision: Decision) -> bool:
+    # The policy queues an investigation for every alert raised at screening,
+    # except a match to what the owner marked real (D-056).
+    return (
+        decision.stage is Stage.SCREENED
+        and decision.disposition is Disposition.ALERTED
+        and not (decision.screen is not None and decision.screen.owner_real)
+    )
+
+
+def _confidence_line(decision: Decision) -> str:
+    """How sure, and of what. The vision model's confidence belongs to its
+    own verdict, which can differ from the card's (a person while armed away
+    is an alert even when the model thought it looked ordinary)."""
+    stage = STAGE_LABELS.get(decision.stage, decision.stage.value)
+    screen = decision.screen
+    if decision.stage is Stage.SCREENED and screen is not None:
+        return f"Vision model: {screen.verdict.value} @ {screen.confidence:.2f} · {stage}"
+    if decision.stage is Stage.FACE:
+        # Frigate's own match score, when it reported one.
+        score = f" (match score {decision.confidence:.2f})" if decision.confidence else ""
+        return f"{stage[0].upper()}{stage[1:]}{score}"
+    return f"Confidence {decision.confidence:.2f} · {stage}"
 
 
 def _analyzing(decision: Decision) -> bool:
@@ -136,7 +154,7 @@ def _analyzing(decision: Decision) -> bool:
 def keyboard_for(decision: Decision) -> str:
     """'Look closer' is offered only when nothing is investigated or queued
     (nor about to be: an alert raised at screening is always investigated)."""
-    if decision.stage is Stage.INVESTIGATED or _investigating(decision) or _analyzing(decision):
+    if decision.stage is Stage.INVESTIGATED or being_investigated(decision) or _analyzing(decision):
         return "standard"
     return "full"
 
@@ -231,6 +249,7 @@ def decision_from_row(row: Any) -> Decision | None:
                 verdict=Verdict(data.get("verdict", "uncertain")),
                 confidence=float(data.get("confidence", 0.0)),
                 reason=str(data.get("reason", "")),
+                tags=[str(t) for t in data.get("tags") or []],
                 backend=str(data.get("backend", "")),
                 model=str(data.get("model", "")),
             )

@@ -185,6 +185,25 @@ class NVRClient:
         data = await self._get_bytes(f"/{camera}/latest.jpg", height=height)
         return Frame(camera=camera, timestamp=_time.time(), jpeg=data, source="snapshot")
 
+    # ---------------- faces ----------------
+
+    async def register_face(self, name: str, image: bytes) -> dict[str, Any]:
+        """Add a face to the NVR's Face Library from a whole image; the NVR
+        finds the face in it. Returns its answer: {"success", "message"}."""
+        path = f"/faces/{name}/register"
+        try:
+            r = await self._client.post(f"{self.api}{path}", files={"file": ("face.jpg", image, "image/jpeg")})
+        except httpx.HTTPError as exc:
+            raise NVRError(f"POST {path} failed: {exc}") from exc
+        try:
+            body = r.json()
+        except ValueError:
+            body = None
+        if r.status_code >= 500 or not isinstance(body, dict):
+            raise NVRError(f"POST {path} -> {r.status_code}: {r.text[:200]}")
+        ok = r.status_code < 400 and body.get("success", True) is not False
+        return {"success": ok, "message": str(body.get("message") or "")}
+
     def clip_url(self, camera: str, start: float, end: float) -> str:
         return f"{self.settings.base_url.rstrip('/')}{self.api}/{camera}/start/{start}/end/{end}/clip.mp4"
 

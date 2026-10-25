@@ -301,7 +301,7 @@ async def test_screener_skips_the_model_when_the_gate_resolves(nvr_client, patte
     gate_result, screen = await screener.screen(make_alert(labels=["cat"]))
     assert not gate_result.passed_through
     assert screen is None, "a gated alert must not reach the model"
-    assert screener.stats == {"gated": 1, "screened": 0, "errors": 0}
+    assert screener.stats == {"gated": 1, "screened": 0, "errors": 0, "summaries": 0}
 
 
 async def test_screener_calls_the_model_when_the_gate_passes(nvr_client, patterns):
@@ -357,3 +357,143 @@ async def test_screener_injects_memory_context_into_the_prompt(nvr_client, patte
     context = screener._memory_context(alert)
     assert "headlights sweeping the gate" in context
     assert "priors from past human review" in context
+
+
+def test_the_prompt_says_who_should_be_home():
+    """B-015: the screener used to judge a person indoors without knowing the house was armed."""
+    alert = make_alert(labels=["person"])
+    assert "nobody is expected on site" in prompts.build_prompt(alert, 1, arming="armed_away")
+    assert "asleep" in prompts.build_prompt(alert, 1, arming="armed_night")
+    assert "Household" not in prompts.build_prompt(alert, 1)
+
+
+async def test_the_screener_tells_the_model_the_arming_state(nvr_client, patterns):
+    seen: list[str] = []
+
+    class Recording(VLMBackend):
+        name = "recording"
+
+        async def infer(self, frames, prompt, system):
+            seen.append(prompt)
+            return '{"verdict": "benign", "confidence": 0.9, "reason": "x"}'
+
+    class Armed:
+        def get(self):
+            return {"state": "armed_away"}
+
+    screener = Screener(ScreeningGate(GateSettings(), patterns), FrameSampler(nvr_client),
+                        Recording("m"), VLMSettings(frames=1), arming=Armed())
+    await screener.screen(make_alert(camera="cam_drive"))
+    assert "Household: armed away" in seen[0]
+
+
+# ---------------- the whole-event summary (M1-18, D-046) ----------------
+
+
+def test_a_summary_samples_the_whole_event_evenly():
+    alert = make_alert(start_time=1000.0, duration=50.0)
+    assert sample_timestamps(alert, 4, front_bias=False) == [1010.0, 1020.0, 1030.0, 1040.0]
+    assert max(sample_timestamps(alert, 4)) < 1040.0, "screening frames stay front-biased"
+
+
+def test_summary_replies_are_read_forgivingly_and_never_guessed():
+    from watchwise.tier2.vlm.base import parse_summary_reply
+
+    good = parse_summary_reply('Sure: ```json\n{"title": "Walks past", "summary": "A person walks left to right '
+                               'and leaves.", "threat_level": 5, "confidence": 0.8, "concerns": "none"}\n```')
+    assert (good.title, good.threat_level, good.confidence, good.concerns) == ("Walks past", 2, 0.8, ["none"])
+    assert good.text() == "Walks past. A person walks left to right and leaves."
+    for bad in (None, "", "no idea", '{"title": "x"}', "<think>{</think>"):
+        assert parse_summary_reply(bad) is None
+
+
+def test_the_summary_prompt_names_the_concerns_and_the_household():
+    alert = make_alert(labels=["person"], duration=42.0)
+    prompt = prompts.build_summary_prompt(alert, 4, arming="armed_night", concerns=["unusual gestures"])
+    assert "4 frame(s) spread across one event" in prompt and '"duration_s": 42.0' in prompt
+    assert "- unusual gestures" in prompt and "asleep" in prompt
+    assert "start to finish" in prompts.SUMMARY_SYSTEM
+    assert "marked earlier events like this one real" not in prompt
+
+
+def test_the_summary_is_shown_what_the_owner_marked_real():
+    """D-053: the summary can only raise, so it sees the Real examples."""
+    prompt = prompts.build_summary_prompt(make_alert(labels=["person"]), 4,
+                                          owner_real=["waving both arms at the camera"])
+    assert '- "waving both arms at the camera"' in prompt
+    assert "potential_threat_level at least 1" in prompt
+
+
+async def test_the_screener_summarizes_the_whole_event(nvr_client, patterns):
+    asked: list[tuple[int, str]] = []
+
+    class Describing(VLMBackend):
+        name = "describing"
+
+        async def infer(self, frames, prompt, system):
+            asked.append((len(frames), system))
+            return '{"title": "Delivery", "summary": "A courier leaves a box and goes.", "threat_level": 0}'
+
+    gate = ScreeningGate(GateSettings(), patterns)
+    screener = Screener(gate, FrameSampler(nvr_client), Describing("m"), VLMSettings(summary_frames=3))
+    summary = await screener.summarize(make_alert(camera="cam_drive", duration=30.0))
+    assert summary.short_summary == "A courier leaves a box and goes."
+    assert asked == [(3, prompts.SUMMARY_SYSTEM)]
+
+    off = Screener(gate, FrameSampler(nvr_client), Describing("m"), VLMSettings(summary_frames=0))
+    assert await off.summarize(make_alert(camera="cam_drive")) is None and len(asked) == 1
+
+    class Failing(VLMBackend):
+        name = "failing"
+
+        async def infer(self, frames, prompt, system):
+            raise RuntimeError("model unavailable")
+
+    broken = Screener(gate, FrameSampler(nvr_client), Failing("m"), VLMSettings(summary_frames=3))
+    assert await broken.summarize(make_alert(camera="cam_drive")) is None
+
+
+def test_model_checked_memory_never_holds_a_routine_back_at_the_gate(store, patterns):
+    """D-051: the gate can't see behaviour, so on GPU profiles it doesn't decide routines."""
+    alert = make_alert(camera="cam_drive", labels=["car"], zones=["driveway"])
+    pattern_id = patterns.upsert(kind="false_alarm", signature=alert.signature(), description="headlights")
+    for _ in range(4):
+        patterns.upsert(kind="false_alarm", signature=alert.signature(), description="headlights")
+        patterns.record_outcome(pattern_id, agreed=True)
+    free = ScreeningGate(GateSettings(), patterns, store=store)
+    assert free.evaluate(alert).rule == "memory_pattern"
+    checked = ScreeningGate(GateSettings(memory_mode="model_checked"), patterns, store=store)
+    assert checked.evaluate(make_alert(review_id="r2", camera="cam_drive", labels=["car"], zones=["driveway"],
+                                       start_time=DAY_TS + 999)).passed_through
+
+
+async def test_a_match_to_what_the_owner_marked_real_is_never_benign(nvr_client, store, patterns):
+    """D-055: live, the model said "waving both arms at the camera, which matches a
+    previously marked real event" and still answered benign."""
+    import json
+    import time as _time
+
+    alert = make_alert(camera="cam_door", labels=["person"], zones=["hall"])
+    store.upsert_alert({"review_id": "old", "camera": "cam_door", "start_time": 1.0, "signature": alert.signature(),
+                        "labels": ["person"], "zones": ["hall"]}, "screened")
+    store.execute("INSERT INTO corrections(review_id, signature, human_verdict, note, created_at) VALUES (?,?,?,?,?)",
+                  ("old", alert.signature(), "suspicious", "waving both arms at the camera", _time.time()))
+    prompts_seen: list[str] = []
+
+    class Replying(VLMBackend):
+        name = "replying"
+
+        def __init__(self, tags):
+            super().__init__("m")
+            self.tags = tags
+
+        async def infer(self, frames, prompt, system):
+            prompts_seen.append(prompt)
+            return json.dumps({"verdict": "benign", "confidence": 0.95, "reason": "waving", "tags": self.tags})
+
+    gate = ScreeningGate(GateSettings(), patterns, store=store)
+    for tags, expected in ((["OWNER_REAL"], Verdict.SUSPICIOUS), (["expected"], Verdict.BENIGN)):
+        screener = Screener(gate, FrameSampler(nvr_client), Replying(tags), VLMSettings(), patterns=patterns)
+        assert (await screener.screen_frames(alert)).verdict is expected
+    assert 'marked real: "waving both arms at the camera"' in prompts_seen[-1]
+    assert 'add the tag "owner_real"' in prompts_seen[-1]

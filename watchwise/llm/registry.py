@@ -23,6 +23,7 @@ def build_chat_model(endpoint: ModelEndpoint) -> ChatModel:
             max_tokens=endpoint.max_tokens,
             context_window=endpoint.context_window or 8192,
             keep_alive=endpoint.keep_alive,
+            think=endpoint.think,
         )
     if provider == "openai_compat":
         from watchwise.llm.openai_compat import OpenAICompatChat

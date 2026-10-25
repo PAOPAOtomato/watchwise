@@ -10,6 +10,10 @@ source (headlights on the drive), routine daytime traffic, animals at night,
 and a few genuine after-hours person alerts. It runs the day twice -- cold,
 then again after a simulated human has corrected what reached them -- so the
 learning loop is visible in the output.
+
+The household is armed at night (22:00-07:00) and at home during the day,
+because a day of residents at the front door is not an "armed away" day:
+while armed away, every person goes to a human.
 """
 
 from __future__ import annotations
@@ -42,6 +46,13 @@ from watchwise.wiring import build_system
 
 DAY_START = datetime(2026, 3, 10, 0, 0, 0)
 CAMERAS = ("cam_drive", "cam_door", "cam_yard")
+NIGHT_STARTS, NIGHT_ENDS = 22, 7  # the household's armed_night hours
+
+
+def household(ts: float) -> str:
+    """The demo household's arming state at ``ts``."""
+    hour = datetime.fromtimestamp(ts).hour
+    return "armed_night" if hour >= NIGHT_STARTS or hour < NIGHT_ENDS else "armed_home"
 
 
 @dataclass
@@ -144,16 +155,31 @@ async def run_demo(
     config = demo_config(str(tmp / "watchwise.db"), models_from)
     system = build_system(config, nvr_client=nvr, start_sources=False)
     await system.start()
+    drain_s = max(120.0, config.agent.timeout_s * 4)
+
+    async def handle(alert: AlertContext) -> Any:
+        state = household(alert.start_time)
+        if (system.arming.get() or {}).get("state") != state:
+            # Investigations finish under the state they started in, so the
+            # result doesn't depend on how fast they run.
+            await system.investigations.drain(timeout=drain_s)
+            system.arming.set(state, source="demo")
+        return await system.pipeline.handle(alert)
+
     try:
         day = build_day(seed)
-        out(f"Simulating {len(day)} alerts across one day on {len(CAMERAS)} cameras.\n")
+        out(f"Simulating {len(day)} alerts across one day on {len(CAMERAS)} cameras.")
+        out(
+            f"Household: armed at night ({NIGHT_STARTS:02d}:00-{NIGHT_ENDS:02d}:00), "
+            "at home during the day.\n"
+        )
 
         # ---- pass 1: a cold system, no learned patterns ----
         results: list[tuple[str, str, str]] = []
         for alert, truth in day:
-            decision = await system.pipeline.handle(alert)
+            decision = await handle(alert)
             results.append((alert.review_id, truth, decision.disposition.value))
-        await system.investigations.drain(timeout=max(120.0, config.agent.timeout_s * 4))
+        await system.investigations.drain(timeout=drain_s)
         await asyncio.sleep(0.2)
         cold_funnel = dict(system.pipeline.cost_funnel())
         cold_surfaced = _surfaced(system)
@@ -191,9 +217,9 @@ async def run_demo(
             alert.start_time += 86400
             if alert.end_time:
                 alert.end_time += 86400
-            decision = await system.pipeline.handle(alert)
+            decision = await handle(alert)
             warm_results.append((alert.review_id, truth, decision.disposition.value))
-        await system.investigations.drain(timeout=max(120.0, config.agent.timeout_s * 4))
+        await system.investigations.drain(timeout=drain_s)
         await asyncio.sleep(0.2)
         warm_funnel = dict(system.pipeline.cost_funnel())
         warm_surfaced = _surfaced(system, prefix="warm-")

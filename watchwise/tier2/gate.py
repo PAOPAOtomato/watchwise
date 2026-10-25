@@ -17,6 +17,7 @@ Anything the gate cannot resolve is passed through to tier 2, unchanged.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -65,7 +66,7 @@ class ScreeningGate:
         # for in-process dedupe.
         self._recent: dict[str, tuple[float, str]] = {}
 
-    def evaluate(self, ctx: AlertContext) -> GateResult:
+    def evaluate(self, ctx: AlertContext, *, use_memory: bool = True) -> GateResult:
         """Decide whether this alert is worth a model call.
 
         Time-based rules read the alert's own ``start_time`` rather than the
@@ -135,8 +136,13 @@ class ScreeningGate:
                     rule="dedupe_window",
                 )
 
-        # 5. A trusted false-alarm pattern from long-term memory.
-        match = self.patterns.best_suppression_match(
+        # 5. A trusted false-alarm pattern from long-term memory, unless the
+        # caller says memory must not decide this one (a person while armed),
+        # or a human recently marked this kind of event real: memory can't
+        # tell what people did in the frames, only that it looked alike.
+        if use_memory and (self.settings.memory_mode != "free" or self.recently_real(signature)):
+            use_memory = False
+        match = None if not use_memory else self.patterns.best_suppression_match(
             signature,
             self._describe(ctx),
             min_similarity=self.settings.memory_suppress_similarity,
@@ -161,6 +167,19 @@ class ScreeningGate:
         self._recent[signature] = (ctx.start_time, ctx.review_id)
         self._prune(ctx.start_time)
         return GateResult(passed_through=True, rule="no_rule_matched")
+
+    def recently_real(self, signature: str) -> bool:
+        """Did a human mark this kind of event real within ``real_veto_days``?
+        (D-048 for the gate; D-052 for investigations.)"""
+        if self.store is None or self.settings.real_veto_days <= 0:
+            return False
+        since = time.time() - self.settings.real_veto_days * 86400.0
+        row = self.store.query_one(
+            "SELECT 1 FROM corrections WHERE signature=? AND human_verdict='suspicious' "
+            "AND created_at >= ? LIMIT 1",
+            (signature, since),
+        )
+        return row is not None
 
     @staticmethod
     def _describe(ctx: AlertContext) -> str:

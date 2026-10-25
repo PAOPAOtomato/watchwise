@@ -175,7 +175,7 @@ def build_system(
     sampler = FrameSampler(
         nvr, max_edge=screening.max_image_edge, quality=screening.jpeg_quality
     )
-    screener = Screener(gate, sampler, vlm, screening, patterns)
+    screener = Screener(gate, sampler, vlm, screening, patterns, arming=arming)
     policy = DecisionPolicy(config.decision)
 
     backend, backend_status = build_agent_backend(config, tool_ctx)
@@ -224,11 +224,20 @@ def build_system(
         investigations=investigations,
         sinks=sinks,
         arming=arming,
+        roster=roster,
+        faces=config.faces,
     )
 
     sources: list[AlertSource] = []
     if start_sources and config.mqtt.enabled:
-        sources.append(MQTTAlertSource(alert_queue, config.mqtt, screen_on=config.mqtt.screen_on))
+        sources.append(
+            MQTTAlertSource(
+                alert_queue,
+                config.mqtt,
+                screen_on=config.mqtt.screen_on,
+                on_face=pipeline.note_face if config.faces.household else None,
+            )
+        )
 
     system = System(
         config=config,
@@ -270,6 +279,7 @@ def _build_telegram(
     processed and available over the API.
     """
     from watchwise.notify.actions import ActionHandler
+    from watchwise.notify.faces import FaceEnroller
     from watchwise.notify.telegram import TelegramAPI, TelegramBot, TelegramNotifier
 
     settings = config.notify.telegram
@@ -296,7 +306,8 @@ def _build_telegram(
         gate=config.gate,
         snooze_minutes=settings.snooze_minutes,
     )
-    return notifier, TelegramBot(api, settings, handler, notifier), api
+    enroller = FaceEnroller(nvr, config.faces)
+    return notifier, TelegramBot(api, settings, handler, notifier, enroller=enroller), api
 
 
 def _arming_path(config: WatchwiseConfig) -> Any:

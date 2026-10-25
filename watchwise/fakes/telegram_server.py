@@ -35,18 +35,18 @@ class FakeTelegramState:
         self._next_update = 1
         self._next_message = 100
 
-    def push_message(self, chat_id: int, text: str, *, first_name: str = "Test") -> None:
-        self.updates.append(
-            {
-                "update_id": self._next_update,
-                "message": {
-                    "message_id": self._next_update,
-                    "chat": {"id": chat_id, "type": "private", "first_name": first_name},
-                    "from": {"id": chat_id, "first_name": first_name},
-                    "text": text,
-                },
-            }
-        )
+    def push_message(
+        self, chat_id: int, text: str, *, first_name: str = "Test", reply_to: int | None = None
+    ) -> None:
+        message: dict[str, Any] = {
+            "message_id": self._next_update,
+            "chat": {"id": chat_id, "type": "private", "first_name": first_name},
+            "from": {"id": chat_id, "first_name": first_name},
+            "text": text,
+        }
+        if reply_to is not None:
+            message["reply_to_message"] = {"message_id": reply_to, "chat": {"id": chat_id}}
+        self.updates.append({"update_id": self._next_update, "message": message})
         self._next_update += 1
 
     def push_button(self, chat_id: int, data: str, *, message_id: int = 100, username: str = "tester") -> None:

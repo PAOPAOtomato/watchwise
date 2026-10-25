@@ -17,8 +17,8 @@ from watchwise.memory.long_term import PatternLibrary
 from watchwise.tier2 import prompts
 from watchwise.tier2.gate import GateResult, ScreeningGate
 from watchwise.tier2.sampling import FrameSampler
-from watchwise.tier2.vlm.base import VLMBackend
-from watchwise.types import AlertContext, ScreenResult, Verdict
+from watchwise.tier2.vlm.base import VLMBackend, parse_summary_reply
+from watchwise.types import OWNER_REAL_TAG, AlertContext, ReviewSummary, ScreenResult, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +31,18 @@ class Screener:
         vlm: VLMBackend,
         settings: VLMSettings,
         patterns: PatternLibrary | None = None,
+        *,
+        arming: Any = None,
     ):
         self.gate = gate
         self.sampler = sampler
         self.vlm = vlm
         self.settings = settings
         self.patterns = patterns
+        # Anything with get() -> {"state": ...}; the prompt says who should be home.
+        self.arming = arming
         self._sem = asyncio.Semaphore(max(1, settings.max_concurrency))
-        self.stats = {"gated": 0, "screened": 0, "errors": 0}
+        self.stats = {"gated": 0, "screened": 0, "errors": 0, "summaries": 0}
 
     async def screen(self, ctx: AlertContext) -> tuple[GateResult, ScreenResult | None]:
         """Screen one alert.
@@ -52,9 +56,9 @@ class Screener:
             return gate_result, None
         return gate_result, await self.screen_frames(ctx)
 
-    def check_gate(self, ctx: AlertContext) -> GateResult:
+    def check_gate(self, ctx: AlertContext, *, use_memory: bool = True) -> GateResult:
         """The free, model-free half of screening."""
-        gate_result = self.gate.evaluate(ctx)
+        gate_result = self.gate.evaluate(ctx, use_memory=use_memory)
         if not gate_result.passed_through:
             self.stats["gated"] += 1
             logger.debug(
@@ -82,7 +86,7 @@ class Screener:
                     error="no_frames",
                 )
 
-            prompt = prompts.build_prompt(ctx, len(frames), extra)
+            prompt = prompts.build_prompt(ctx, len(frames), extra, arming=self._arming_state())
             result = await self.vlm.screen(frames, prompt, prompts.SYSTEM)
 
         self.stats["screened"] += 1
@@ -93,7 +97,40 @@ class Screener:
         # them; that is how a new pattern earns the trust the gate requires.
         threshold = self.gate.settings.memory_suppress_similarity
         result.memory_ids = [m.pattern_id for m in matches if m.similarity >= threshold]
+        if result.verdict is Verdict.BENIGN and result.owner_real:
+            # D-055: live, the model saw "waving both arms, which matches a
+            # previously marked real event" and still said benign, because a
+            # resident at home is ordinary. The owner asked for these.
+            result.verdict = Verdict.SUSPICIOUS
         return result
+
+    async def summarize(self, ctx: AlertContext) -> ReviewSummary | None:
+        """What happened over the whole event, from frames spread across it
+        (D-046). None when switched off or when anything fails: the card then
+        simply goes without it."""
+        count = self.settings.summary_frames
+        if count <= 0:
+            return None
+        async with self._sem:
+            frames = await self.sampler.for_alert(ctx, count, front_bias=False)
+            if not frames:
+                return None
+            prompt = prompts.build_summary_prompt(
+                ctx,
+                len(frames),
+                arming=self._arming_state(),
+                concerns=self.settings.summary_concerns,
+                owner_real=self._owner_real(ctx),
+            )
+            raw = await self.vlm.describe(frames, prompt, prompts.SUMMARY_SYSTEM)
+        self.stats["summaries"] += 1
+        summary = parse_summary_reply(raw)
+        if summary is None and raw:
+            logger.info("no usable summary for %s: %s", ctx.review_id, raw[:200])
+        return summary
+
+    def _arming_state(self) -> str | None:
+        return (self.arming.get() or {}).get("state") if self.arming is not None else None
 
     def _memory_matches(self, ctx: AlertContext) -> list[Any]:
         if self.patterns is None:
@@ -114,17 +151,55 @@ class Screener:
         """
         if matches is None:
             matches = self._memory_matches(ctx)
-        if not matches:
-            return ""
-        lines = ["Known recurring judgements for this camera and label set:"]
-        for m in matches:
+        lines: list[str] = []
+        if matches:
+            lines.append("Known recurring judgements for this camera and label set:")
+            for m in matches:
+                lines.append(
+                    f"- ({m.kind}, {m.corrections} human corrections) {m.description}"
+                )
             lines.append(
-                f"- ({m.kind}, {m.corrections} human corrections) {m.description}"
+                "Treat these as priors from past human review, not as the answer."
             )
-        lines.append(
-            "Treat these as priors from past human review, not as the answer."
-        )
+        lines += self._owner_examples(ctx)
         return "\n".join(lines)
+
+    def _owner_real(self, ctx: AlertContext) -> list[str]:
+        """What the owner marked real on this kind of event, for the summary,
+        which can only raise (D-053)."""
+        if self.patterns is None:
+            return []
+        texts: list[str] = []
+        for verdict, text in self.patterns.store.correction_examples(ctx.signature()):
+            if verdict == "suspicious" and text[:200] not in texts and len(texts) < 3:
+                texts.append(text[:200])
+        return texts
+
+    def _owner_examples(self, ctx: AlertContext) -> list[str]:
+        """What the owner said about earlier events of this kind, as what was
+        seen in them (D-051): the camera, labels and zones alone can't tell
+        someone sitting at a desk from someone gesturing at the camera."""
+        if self.patterns is None:
+            return []
+        seen: dict[str, list[str]] = {"benign": [], "suspicious": []}
+        for verdict, text in self.patterns.store.correction_examples(ctx.signature()):
+            texts = seen.get(verdict)
+            if texts is not None and text not in texts and len(texts) < 4:
+                texts.append(text[:200])
+        if not (seen["benign"] or seen["suspicious"]):
+            return []
+        lines = ["", "How the owner judged earlier events like this one:"]
+        lines += [f'- marked expected: "{t}"' for t in seen["benign"]]
+        lines += [f'- marked real: "{t}"' for t in seen["suspicious"]]
+        rule = "If this event clearly matches what they marked expected, it is routine (benign). "
+        if seen["suspicious"]:
+            rule += (
+                "If it resembles what they marked real, even if it also looks like something "
+                "they marked expected, they want an alert even if it looks harmless: answer "
+                f'"suspicious" and add the tag "{OWNER_REAL_TAG}". '
+            )
+        lines.append(rule + "If it shows something different, it is not routine.")
+        return lines
 
     async def aclose(self) -> None:
         await self.vlm.aclose()

@@ -111,6 +111,10 @@ notify:
     send_images: true
     notify_on: [alerted, escalated_human] # also possible: downgraded, suppressed
     snooze_minutes: 60
+    # After 🚨 Real, ask "What was wrong?". The reply becomes the example the
+    # models are shown for that kind of event (it leaves the machine only if a
+    # model role uses a cloud provider).
+    ask_why_on_real: true
   # Publish every verdict on watchwise/verdicts and watchwise/<camera>/verdict.
   mqtt:
     enabled: false
@@ -141,6 +145,17 @@ decision:
 duty_roster:
   path: ./config/duty_roster.yml
   timezone: UTC
+
+# People who live here, as Frigate's face recognition names them (it must be
+# enabled in Frigate; see deploy/frigate/config.example.yml). While at home or
+# disarmed, a recognized resident is held back, even after a card went out;
+# while armed, they count like a duty-roster match. A face Frigate saw but
+# could not match to anyone raises the event when it ends. Recognition runs in
+# Frigate on this machine; a recognized name appears in card text (Telegram).
+faces:
+  household: [] # e.g. [alex]
+  alert_on_unknown: true
+  min_unknown_attempts: 2
 
 service:
   host: 127.0.0.1

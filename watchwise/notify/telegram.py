@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import json
 import logging
 import time
@@ -29,7 +30,8 @@ import httpx
 
 from watchwise.config import TelegramSettings
 from watchwise.memory.store import Store
-from watchwise.notify.actions import ActionHandler
+from watchwise.notify.actions import ASK_WHY, ActionHandler
+from watchwise.notify.faces import FaceEnroller
 from watchwise.notify.presenter import (
     CAPTION_LIMIT,
     TEXT_LIMIT,
@@ -329,11 +331,12 @@ class TelegramNotifier:
 HELP = (
     "<b>Watchwise</b> sends a card for each alert that needs you.\n"
     "✅ Expected: teach it this is normal (after a few, it stops alerting on it)\n"
-    "🚨 Real: confirm it was worth an alert\n"
+    "🚨 Real: confirm it was worth an alert (reply to my question to say what was wrong)\n"
     "🔍 Look closer: run a full investigation now\n"
     "🔇 Snooze: mute this camera for a while (alerts are still recorded)\n"
     "❓ Why: the evidence behind the decision\n"
-    "↩️ Undo: take back your last answer on that card"
+    "↩️ Undo: take back your last answer on that card\n"
+    "/face &lt;name&gt;: add your face to Frigate's Face Library from what the camera sees now"
 )
 
 
@@ -346,11 +349,13 @@ class TelegramBot:
         settings: TelegramSettings,
         handler: ActionHandler,
         notifier: TelegramNotifier,
+        enroller: FaceEnroller | None = None,
     ):
         self.api = api
         self.settings = settings
         self.handler = handler
         self.notifier = notifier
+        self.enroller = enroller
         self._offset: int | None = None
         self._task: asyncio.Task[None] | None = None
 
@@ -417,7 +422,15 @@ class TelegramBot:
             return
         if not self.allowed(chat_id):
             return  # strangers get no further answers
-        if text.startswith("/help"):
+        replied_to = (message.get("reply_to_message") or {}).get("message_id")
+        if replied_to is not None and text and not text.startswith("/"):
+            answer = self.handler.note_from_reply(chat_id, int(replied_to), text)
+            if answer is not None:
+                await self.api.send_message(chat_id, answer, reply_to=message.get("message_id"))
+                return
+        if text.startswith("/face"):
+            await self._face(chat_id, text)
+        elif text.startswith("/help"):
             await self.api.send_message(chat_id, HELP)
         else:
             await self.api.send_message(
@@ -432,7 +445,11 @@ class TelegramBot:
         if chat_id is None or not self.allowed(chat_id):
             await self._answer(query, "Not authorized for this chat.")
             return
-        parsed = parse_callback(str(query.get("data") or ""))
+        data = str(query.get("data") or "")
+        if data.startswith("fc:"):
+            await self._face_button(query, chat_id, data)
+            return
+        parsed = parse_callback(data)
         if parsed is None:
             await self._answer(query, "Unknown button.")
             return
@@ -446,6 +463,51 @@ class TelegramBot:
             await self.notifier.apply(review_id, footer=outcome.footer, keyboard=outcome.keyboard)
         if outcome.reply:
             await self.api.send_message(chat_id, outcome.reply, reply_to=message.get("message_id"))
+        if outcome.ask_note is not None and self.settings.ask_why_on_real:
+            sent = await self.api.send_message(
+                chat_id,
+                ASK_WHY,
+                reply_to=message.get("message_id"),
+                reply_markup={"force_reply": True, "input_field_placeholder": "What was wrong?"},
+            )
+            self.handler.remember_note_request(chat_id, int(sent["message_id"]), outcome.ask_note)
+
+    async def _face(self, chat_id: Any, text: str) -> None:
+        """/face <name> [camera]: show the camera's current frame, ask first (D-058)."""
+        if self.enroller is None:
+            await self.api.send_message(chat_id, "Adding faces isn't available here.")
+            return
+        parts = text.split()
+        if len(parts) < 2:
+            await self.api.send_message(chat_id, "Send /face &lt;name&gt; [camera] while you face the camera, e.g. /face alex.")
+            return
+        token, capture, message = await self.enroller.capture(parts[1], parts[2] if len(parts) > 2 else None)
+        text = html.escape(message, quote=False)
+        if capture is None:
+            await self.api.send_message(chat_id, text)
+            return
+        markup = {"inline_keyboard": [[
+            {"text": "✅ Add", "callback_data": f"fc:add:{token}"},
+            {"text": "✖️ Cancel", "callback_data": f"fc:cancel:{token}"},
+        ]]}
+        if self.settings.send_images:
+            await self.api.send_photo(chat_id, capture.jpeg, text, reply_markup=markup)
+        else:
+            await self.api.send_message(chat_id, text, reply_markup=markup)
+
+    async def _face_button(self, query: dict[str, Any], chat_id: Any, data: str) -> None:
+        _, action, token = (data.split(":", 2) + ["", ""])[:3]
+        if self.enroller is None or not token:
+            await self._answer(query, "Unknown button.")
+            return
+        if action == "add":
+            await self._answer(query, "Adding…")
+            result = await self.enroller.confirm(token)
+        else:
+            await self._answer(query, "Cancelled.")
+            result = self.enroller.cancel(token)
+        message_id = (query.get("message") or {}).get("message_id")
+        await self.api.send_message(chat_id, html.escape(result, quote=False), reply_to=message_id)
 
     async def _answer(self, query: dict[str, Any], text: str) -> None:
         """Answer a button press. Telegram refuses answers to presses that

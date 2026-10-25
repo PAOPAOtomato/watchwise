@@ -410,3 +410,70 @@ def test_an_existing_database_gains_the_summary_column(tmp_path):
     store.record_decision({**decision, "summary": None, "stage": "investigated"})
     assert store.get_alert("r")["summary"] == "A person walks past.", "a later decision keeps it"
     store.close()
+
+
+def test_correction_examples_describe_what_was_seen(store):
+    """D-051: the owner's judgements as descriptions, freshest first; a later
+    whole-event summary beats the first look's reason."""
+    import json as _json
+    import time as _time
+
+    for i, (verdict, summary, reason) in enumerate([
+        ("benign", None, "a person seated at a desk"),
+        ("suspicious", "A man gestures wildly at the camera.", "a person at a desk"),
+        ("benign", "A man reads at his desk, then leaves.", "a person"),
+    ]):
+        rid = f"ex-{i}"
+        store.upsert_alert({"review_id": rid, "camera": "webcam", "start_time": 1.0 + i,
+                            "signature": "webcam|person|nozone", "labels": ["person"], "zones": []}, "screened")
+        store.record_decision({"review_id": rid, "disposition": "alerted", "severity": "alert", "confidence": 0.9,
+                               "rationale": "x", "stage": "screened", "summary": summary,
+                               "screen": {"verdict": "benign", "confidence": 0.9, "reason": reason}})
+        store.execute("INSERT INTO corrections(review_id, signature, system_verdict, system_conf, human_verdict, "
+                      "note, reviewer, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                      (rid, "webcam|person|nozone", "benign", 0.9, verdict, "", "t", _time.time() + i))
+    assert store.correction_examples("webcam|person|nozone") == [
+        ("benign", "A man reads at his desk, then leaves."),
+        ("suspicious", "A man gestures wildly at the camera."),
+        ("benign", "a person seated at a desk"),
+    ]
+    assert store.correction_examples("other|sig") == []
+
+
+def test_the_owners_words_beat_the_models_and_a_contrary_reason_is_dropped(store):
+    """D-053: live, the only Real example was the first look's own reason
+    ("...consistent with casual behavior"), which argued the opposite."""
+    import time as _time
+
+    sig = "webcam|person|nozone"
+    for i, (verdict, note, screen_verdict, reason) in enumerate([
+        ("suspicious", "", "benign", "an expressive gesture, consistent with casual behavior"),
+        ("suspicious", "", "uncertain", "a person moving quickly"),
+        ("suspicious", "waving both arms at the camera", "benign", "a person at a desk"),
+    ]):
+        rid = f"nt-{i}"
+        store.upsert_alert({"review_id": rid, "camera": "webcam", "start_time": 1.0 + i,
+                            "signature": sig, "labels": ["person"], "zones": []}, "screened")
+        store.record_decision({"review_id": rid, "disposition": "downgraded", "severity": "detection",
+                               "confidence": 0.9, "rationale": "x", "stage": "screened",
+                               "screen": {"verdict": screen_verdict, "confidence": 0.9, "reason": reason}})
+        store.execute("INSERT INTO corrections(review_id, signature, system_verdict, system_conf, human_verdict, "
+                      "note, reviewer, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                      (rid, sig, screen_verdict, 0.9, verdict, note, "t", _time.time() + i))
+    assert store.correction_examples(sig) == [
+        ("suspicious", "waving both arms at the camera"),
+        ("suspicious", "a person moving quickly"),
+    ]
+
+
+def test_a_note_request_links_a_reply_to_its_correction(store):
+    store.upsert_alert({"review_id": "nr-1", "camera": "webcam", "start_time": 1.0,
+                        "signature": "webcam|person|nozone", "labels": ["person"], "zones": []}, "screened")
+    cid = int(store.execute("INSERT INTO corrections(review_id, signature, human_verdict, created_at) "
+                            "VALUES ('nr-1', 'webcam|person|nozone', 'suspicious', 1.0)").lastrowid)
+    store.add_note_request(555, 900, cid)
+    assert store.note_request(555, 900) == cid
+    assert store.note_request(555, 901) is None and store.note_request(556, 900) is None
+    assert store.set_correction_note(cid, "waving both arms")
+    store.execute("DELETE FROM corrections WHERE id=?", (cid,))
+    assert not store.set_correction_note(cid, "too late"), "an undone correction takes no note"

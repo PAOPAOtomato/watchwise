@@ -46,6 +46,7 @@ class OllamaChat(ChatModel):
         max_tokens: int = 2048,
         context_window: int | None = 8192,
         keep_alive: str | None = None,
+        think: bool | None = None,
         client: httpx.AsyncClient | None = None,
     ):
         super().__init__(model)
@@ -54,6 +55,7 @@ class OllamaChat(ChatModel):
         self.max_tokens = max_tokens
         self.context_window = context_window
         self.keep_alive = keep_alive
+        self.think = think
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout_s)
 
@@ -125,6 +127,8 @@ class OllamaChat(ChatModel):
             body["format"] = "json"
         if self.keep_alive:
             body["keep_alive"] = self.keep_alive
+        if self.think is not None:
+            body["think"] = self.think
 
         started = time.perf_counter()
         try:

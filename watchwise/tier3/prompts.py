@@ -36,7 +36,10 @@ sends the alert to a human, which is safe. A confident wrong answer is not.
 - Weigh what a tool tells you by how reliable it is. A degraded camera makes \
 its own labels untrustworthy. A duty-roster match explains activity that would \
 otherwise look anomalous. A prior human correction on this exact signature is \
-strong evidence.
+strong evidence, but it is about what was seen then: if the owner marked events \
+like this real, compare what this alert's own frames show before calling it \
+routine. A false-alarm pattern or a history of downgrades only means the camera, \
+labels and zones matched.
 - Never claim to have seen something you did not retrieve. Cite the tool that \
 gave you each fact.
 

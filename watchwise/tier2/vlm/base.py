@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from watchwise.llm.base import split_reasoning
-from watchwise.types import Frame, ScreenResult, Verdict
+from watchwise.types import Frame, ReviewSummary, ScreenResult, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,18 @@ class VLMBackend(ABC):
 
     async def aclose(self) -> None:
         """Release transport resources. Default: nothing to do."""
+
+    async def describe(self, frames: list[Frame], prompt: str, system: str) -> str | None:
+        """The raw reply to a free-form question about the frames, or None if
+        the model failed or ran out of time: nothing depends on it."""
+        try:
+            async with asyncio.timeout(self.timeout_s):
+                raw = await self.infer(frames, prompt, system)
+        except Exception as exc:
+            logger.warning("VLM %s/%s gave no description: %s", self.name, self.model,
+                           str(exc).strip() or type(exc).__name__)
+            return None
+        return raw.text if isinstance(raw, VLMReply) else str(raw or "")
 
     async def screen(self, frames: list[Frame], prompt: str, system: str) -> ScreenResult:
         import time
@@ -142,6 +154,50 @@ def _is_timeout(exc: BaseException | None) -> bool:
     return False
 
 
+def _json_object(text: str) -> dict[str, Any] | None:
+    """The JSON object in a reply, bare, fenced or embedded in prose."""
+    fence = _FENCE.search(text)
+    candidate = fence.group(1).strip() if fence else text
+    for attempt in (candidate, _JSON_BLOCK.search(candidate)):
+        if attempt is None:
+            continue
+        blob = attempt if isinstance(attempt, str) else attempt.group(0)
+        try:
+            parsed = json.loads(blob)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def parse_summary_reply(raw: str | None) -> ReviewSummary | None:
+    """A whole-event summary, or None: without one, the card just goes
+    without a "What happened" line."""
+    text, _ = split_reasoning((raw or "").strip())
+    payload = _json_object(text) if text else None
+    if payload is None:
+        return None
+    summary = str(payload.get("summary") or "").strip()
+    if not summary:
+        return None
+    try:
+        level = max(0, min(2, int(payload.get("threat_level") or 0)))
+        confidence = max(0.0, min(1.0, float(payload.get("confidence") or 0.0)))
+    except (TypeError, ValueError):
+        level, confidence = 0, 0.0
+    concerns = payload.get("concerns") or []
+    if isinstance(concerns, str):
+        concerns = [concerns]
+    return ReviewSummary(
+        title=str(payload.get("title") or "").strip()[:80],
+        short_summary=summary[:400],
+        threat_level=level,
+        confidence=confidence,
+        concerns=[str(c) for c in concerns][:5],
+    )
+
+
 def parse_screen_reply(raw: str) -> ScreenResult:
     """Coerce a model reply into a ScreenResult.
 
@@ -159,21 +215,7 @@ def parse_screen_reply(raw: str) -> ScreenResult:
             error=EMPTY_REPLY,
         )
 
-    payload: dict[str, Any] | None = None
-    fence = _FENCE.search(text)
-    candidate = fence.group(1).strip() if fence else text
-    for attempt in (candidate, _JSON_BLOCK.search(candidate)):
-        if attempt is None:
-            continue
-        blob = attempt if isinstance(attempt, str) else attempt.group(0)
-        try:
-            parsed = json.loads(blob)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            payload = parsed
-            break
-
+    payload = _json_object(text)
     if payload is None:
         return ScreenResult(
             verdict=Verdict.UNCERTAIN,

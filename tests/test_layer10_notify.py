@@ -184,6 +184,49 @@ async def test_frigates_summary_is_added_to_the_card_and_can_raise_one(system):
     assert len(state.sent) == 2 and "A person crouches behind the shed" in state.sent[-1]["text"]
 
 
+def test_a_card_says_which_verdict_its_confidence_belongs_to():
+    """B-023: an alert raised because the house was armed showed "Confidence
+    0.95", which was the model's confidence that it looked ordinary."""
+    screen = ScreenResult(verdict=Verdict.BENIGN, confidence=0.95, reason="a person at a desk")
+    decision = Decision(review_id="r", disposition=Disposition.ALERTED, severity=Severity.ALERT,
+                        confidence=0.95, rationale="a person in view while armed away: ...",
+                        stage=Stage.SCREENED, screen=screen)
+    card = build_card(make_alert(review_id="r"), decision)
+    assert "Vision model: benign @ 0.95 · first look by the vision model" in card.lines
+
+
+def test_a_face_decision_says_who_and_how_sure_frigate_was():
+    """D-057: the card names who Frigate recognized, with Frigate's own score."""
+    decision = Decision(review_id="r", disposition=Disposition.DOWNGRADED, severity=Severity.DETECTION,
+                        confidence=0.93, rationale="recognized as Rui by Frigate's face recognition",
+                        stage=Stage.FACE)
+    card = build_card(make_alert(review_id="r"), decision)
+    assert card.lines == ["Why: recognized as Rui by Frigate's face recognition",
+                          "Decided by Frigate's face recognition (match score 0.93)"]
+    unknown = Decision(review_id="r", disposition=Disposition.ALERTED, severity=Severity.ALERT, confidence=0.0,
+                       rationale="a face Frigate's face recognition could not match to anyone it knows",
+                       stage=Stage.FACE)
+    assert build_card(make_alert(review_id="r"), unknown).lines[1] == "Decided by Frigate's face recognition"
+
+
+def test_an_alert_the_owner_asked_for_is_final_and_offers_look_closer():
+    """D-056: no investigation runs for a match to what the owner marked
+    real, so the card must not promise one; Look closer starts one."""
+    from watchwise.notify.presenter import INVESTIGATING, decision_from_row
+
+    screen = ScreenResult(verdict=Verdict.SUSPICIOUS, confidence=0.95, reason="waving both arms",
+                          tags=["owner_real"])
+    decision = Decision(review_id="r", disposition=Disposition.ALERTED, severity=Severity.ALERT,
+                        confidence=0.95, rationale="tier-2 screening: waving both arms",
+                        stage=Stage.SCREENED, screen=screen)
+    card = build_card(make_alert(review_id="r"), decision)
+    assert INVESTIGATING not in card.lines and card.keyboard == "full"
+    row = {**decision.to_dict(), "screen_json": __import__("json").dumps(screen.to_dict()),
+           "investigation_id": None, "summary": None}
+    row["keys"] = lambda: row.keys()  # sqlite3.Row's interface, as decision_from_row uses it
+    assert decision_from_row(row).screen.owner_real
+
+
 async def test_no_link_without_frigates_web_page(system):
     sys_, state = system
     await sys_.pipeline.handle(night_person())
@@ -272,6 +315,43 @@ async def test_real_marks_it_worth_alerting(system):
     await press(sys_, state, "fb:real:rev-a")
     assert sys_.store.query("SELECT human_verdict FROM corrections")[0]["human_verdict"] == "suspicious"
     assert "Marked real" in state.edits[-1]["text"]
+
+
+async def test_after_real_the_owner_can_say_what_was_wrong(system):
+    """D-053: live, the only Real example was the model's own vague words.
+    The owner's reply becomes the example shown to the screener."""
+    sys_, state = system
+    await sys_.pipeline.handle(night_person())
+    await settle(sys_)
+    await press(sys_, state, "fb:real:rev-a")
+    question = state.sent[-1]
+    assert "What was wrong?" in question["text"]
+    assert question["reply_markup"]["force_reply"] is True
+
+    state.push_message(CHAT, "  waving both arms\nat the camera ", reply_to=question["message_id"])
+    await sys_.bot.poll_once()
+    assert sys_.store.query("SELECT note FROM corrections")[0]["note"] == "waving both arms at the camera"
+    assert "look for: “waving both arms at the camera”" in state.sent[-1]["text"]
+    signature = sys_.store.get_alert("rev-a")["signature"]
+    assert sys_.store.correction_examples(signature) == [("suspicious", "waving both arms at the camera")]
+
+    # A reply to anything else is not a note.
+    state.push_message(CHAT, "hello", reply_to=state.sent[0]["message_id"])
+    await sys_.bot.poll_once()
+    assert "later version" in state.sent[-1]["text"]
+    assert sys_.store.query("SELECT note FROM corrections")[0]["note"] == "waving both arms at the camera"
+
+
+async def test_the_why_question_can_be_switched_off(system):
+    sys_, state = system
+    sys_.bot.settings.ask_why_on_real = False
+    await sys_.pipeline.handle(night_person())
+    await settle(sys_)
+    before = len(state.sent)
+    await press(sys_, state, "fb:real:rev-a")
+    assert len(state.sent) == before
+    await press(sys_, state, "fb:ok:rev-a")  # and Expected never asks
+    assert len(state.sent) == before
 
 
 # ---------------------------------------------------------------- other buttons
@@ -500,3 +580,49 @@ def test_replacing_a_block_keeps_every_other_line():
     assert out == "# top\na: 1\n\n# about b\nb:\n  x: 9\n\n# c\nc: 3\n"
     appended = replace_top_level_block("a: 1\n", "notify", {"telegram": {"enabled": True}})
     assert yaml.safe_load(appended) == {"a": 1, "notify": {"telegram": {"enabled": True}}}
+
+
+# ---------------------------------------------------------------- /face (D-058)
+
+
+async def _say(sys_, state, text: str) -> dict:
+    state.push_message(CHAT, text)
+    await sys_.bot.poll_once()
+    return state.sent[-1]
+
+
+async def test_face_takes_the_cameras_frame_and_asks_before_adding_it(system, nvr_state):
+    sys_, state = system
+    asked = await _say(sys_, state, "/face alex cam_door")
+    assert asked["method"] == "sendPhoto" and "Add the face in this frame from cam_door" in asked["text"]
+    add, cancel = state.buttons(asked)
+    assert add.startswith("fc:add:") and cancel.startswith("fc:cancel:")
+    assert nvr_state.faces == {}, "nothing changes before the owner confirms"
+
+    state.push_button(CHAT, add, message_id=asked["message_id"])
+    await sys_.bot.poll_once()
+    assert nvr_state.faces == {"alex": 1}
+    assert "Added a face for alex" in state.sent[-1]["text"] and "faces.household" in state.sent[-1]["text"]
+
+    state.push_button(CHAT, add, message_id=asked["message_id"])  # a second tap
+    await sys_.bot.poll_once()
+    assert "expired or was already used" in state.sent[-1]["text"] and nvr_state.faces == {"alex": 1}
+
+
+async def test_face_explains_what_it_needs(system, nvr_state):
+    sys_, state = system
+    assert "Which camera?" in (await _say(sys_, state, "/face alex"))["text"]
+    assert "simple name" in (await _say(sys_, state, "/face al-ex! cam_door"))["text"]
+    assert "Send /face &lt;name&gt;" in (await _say(sys_, state, "/face"))["text"]
+
+    nvr_state.face_in_view = False
+    asked = await _say(sys_, state, "/face alex cam_door")
+    state.push_button(CHAT, state.buttons(asked)[0], message_id=asked["message_id"])
+    await sys_.bot.poll_once()
+    assert "No face was detected." in state.sent[-1]["text"] and nvr_state.faces == {}
+
+    nvr_state.face_in_view = True
+    asked = await _say(sys_, state, "/face alex cam_door")
+    state.push_button(CHAT, state.buttons(asked)[1], message_id=asked["message_id"])  # Cancel
+    await sys_.bot.poll_once()
+    assert "nothing was added" in state.sent[-1]["text"] and nvr_state.faces == {}
