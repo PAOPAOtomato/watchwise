@@ -7,29 +7,29 @@ export const events = [
     kicker: 'THE FAMILIAR, FILTERED', headline: 'Just passing through.',
     summary: 'Light sweeps across the driveway. A trusted recurring pattern resolves the event.',
     label: 'Resolved quietly', tone: 'green', decision: 'Headlights. Nothing more.',
-    reason: 'This event matches a reviewed driveway pattern: a passing car, a brief wash of light, and no activity at the entry. The gate resolves it without a model call.',
+    reason: 'The camera, car label, and driveway zone match a reviewed pattern associated with passing headlights. The gate resolves that signature without examining the image or calling a model.',
     route: 0, routeLabel: 'Resolved by the gate', confidence: '0.90', disposition: 'Suppressed',
     trace: [
       { title: 'A familiar signature', detail: 'Camera: driveway · label: car · zone: driveway. The signature matches an existing false-alarm pattern.' },
-      { title: 'Memory has earned its trust', detail: 'This illustrated pattern has 6 human corrections, trust 0.95, and similarity 0.95. It meets the configured correction, trust, and similarity thresholds.' },
-      { title: 'No model needed', detail: 'The gate records a benign verdict with confidence 0.90. The event is kept in the audit trail even though it does not request attention.' },
+      { title: 'Memory has earned its trust', detail: 'This illustrated pattern has 20 human corrections, including 18 scored agreements and no disagreements: trust 0.95. Similarity is 0.95. It meets the configured correction, trust, and similarity thresholds.' },
+      { title: 'No model needed', detail: 'The gate records a benign verdict with confidence 0.90. The event stays in the audit trail. This gate cannot distinguish different behaviors sharing the same camera, labels, and zones.' },
     ],
-    answer: 'I did not flag these headlights for review. The driveway + car + driveway-zone signature matched a trusted pattern with 6 corrections. The gate resolved it without calling a model. You can still inspect the record.',
+    answer: 'I did not flag these headlights for review. The driveway + car + driveway-zone signature matched a trusted pattern with 20 corrections. The gate resolved it without looking at the image or calling a model. You can still inspect the record; a different behavior with this same signature could also match.',
   },
   {
     id: 'courier', title: 'A parcel at the door', short: 'Courier', time: '18:48', stamp: 'THU · 18:48:32', camera: 'Front entry', cameraId: 'CAM 03',
     scene: 'courier', alt: 'Illustrated view of a courier carrying a parcel to the warmly lit front door',
-    kicker: 'A QUICK LOOK IS ENOUGH', headline: 'A delivery. Then on their way.',
-    summary: 'A person approaches, leaves a parcel, and departs. The vision screen finds routine activity.',
-    label: 'Resolved quietly', tone: 'green', decision: 'Your parcel has arrived.',
-    reason: 'The sampled frames show an approach, a parcel placed at the door, and a departure. Vision screening resolves this as routine delivery activity without a deeper investigation.',
+    kicker: 'A QUICK LOOK AT THE EVIDENCE', headline: 'A delivery at the door.',
+    summary: 'An available snapshot shows a person carrying a parcel at the entry. The screen judges it routine.',
+    label: 'Resolved quietly', tone: 'green', decision: 'A parcel at the door.',
+    reason: 'The available snapshot shows a person carrying a parcel at the entry. Vision screening interprets this as routine delivery activity. This first assessment does not describe the whole visit.',
     route: 1, routeLabel: 'Resolved by vision screening', confidence: '0.92', disposition: 'Downgraded',
     trace: [
-      { title: '18:48:32 — Approach', detail: 'The front-entry frames show a person carrying a box toward the door. No trusted gate pattern settles this event.' },
-      { title: '18:48:46 — Parcel placed', detail: 'The next sampled frame shows the box at the entry. The record supports delivery activity, not the identity of a particular courier.' },
-      { title: '18:49:03 — Departure', detail: 'The person leaves the entry. The authored vision verdict is benign, confidence 0.92. No additional investigation is needed in this scenario.' },
+      { title: '18:48:32 — Review received', detail: 'Frigate reports a person at the front entry. No trusted gate pattern settles this event; an initial screen is requested.' },
+      { title: 'Available snapshot examined', detail: 'The snapshot shows a person with a box at the door. At a live event’s start, recording frames may not yet exist, so screening can fall back to this one snapshot.' },
+      { title: 'An initial decision recorded', detail: 'The authored vision verdict is benign, confidence 0.92. It supports a routine-delivery interpretation, not the courier’s identity or proof of a later departure. No additional investigation is requested in this scenario.' },
     ],
-    answer: 'I did not request your attention for the courier. The selected frames show an approach, a parcel placed, and a departure. Vision screening returns a benign verdict in this story; it does not identify the courier.',
+    answer: 'I did not request your attention for the courier. The available snapshot shows a person carrying a parcel at the entry. Vision screening returns a benign verdict in this story; it does not identify the courier or establish how the whole visit ended.',
   },
   {
     id: 'cleaner', title: 'The expected cleaner', short: 'Cleaner', time: '18:53', stamp: 'THU · 18:53:11', camera: 'Side entry', cameraId: 'CAM 02',
@@ -75,11 +75,11 @@ export function getEvent(id, corrected = false) {
       reason: 'Your third correction helped this pattern earn enough trust. Matching side-entry activity now resolves at the gate. The decision stays recorded, and the pattern can still lose trust if you disagree.',
       route: 0, routeLabel: 'Resolved by learned memory', confidence: '0.71', disposition: 'Downgraded',
       trace: [
-        { title: 'The same activity signature', detail: 'Side-entry camera · person label · service_path zone. This is a pattern match, not recognition of the cleaner’s identity.' },
+        { title: 'The same activity signature', detail: 'Side-entry camera · person label · service_path zone. This does not recognize the cleaner’s identity or behavior; another person or action with the same signature can also match.' },
         { title: 'Your correction made a difference', detail: 'The illustrated pattern now has 3 corrections, trust 0.75, and similarity 0.95. All three configured thresholds are met.' },
         { title: 'Resolved at the gate', detail: 'The pattern produces a benign verdict at confidence 0.71, with no model call. Policy downgrades the event to a detection; full suppression requires confidence 0.85. The record remains auditable.' },
       ],
-      answer: 'I resolved this later event at the gate because the activity signature matches the pattern you helped review. It now has 3 corrections, trust 0.75, and similarity 0.95. This is not face recognition or a new roster entry.',
+      answer: 'I resolved this later event at the gate because the activity signature matches the pattern you helped review. It now has 3 corrections, trust 0.75, and similarity 0.95. This does not recognize a face or behavior, or create a roster entry. Another action with the same signature can also match.',
     };
   }
   const event = events.find((item) => item.id === id) || events[3];
@@ -98,8 +98,9 @@ export function answerQuestion(question, event, corrected, replayed) {
   if (/filter|quiet|suppress|noise/.test(q)) return `In this story, passing headlights were resolved by a trusted gate pattern, and the courier by vision screening.${replayed ? ' The later matching visit was also resolved by memory, after your correction.' : ''} ${corrected ? 'You reviewed the first cleaner visit yourself.' : 'The cleaner still needs your context.'} The unexpected visitor remains flagged. All of those records are available in the event strip.`;
   if (/evidence|proof|frame|camera|confiden/.test(q)) return `${event.title}: ${event.trace.map((step) => step.title).join('; ')}. The ${event.id === 'cleaner' && corrected ? 'original ' : ''}recorded confidence is ${event.confidence}. These are authored values for this illustrated story, not measured field performance. Open Evidence for the full record.`;
   if (/learn|correct|memory|recogn|cleaner|next|trust/.test(q)) return corrected
-    ? 'Your correction reinforced a pattern that already had two reviews. It now has 3 corrections and trust 0.75, enough for a later matching activity to pass the gate. The signature uses camera, labels, and zones—not identity. A conflicting review or age decay can reduce its authority.'
-    : 'The cleaner’s activity pattern already has 2 corrections, but that is below the default threshold of 3. Select the cleaner and mark the visit as expected. That adds your judgment to memory; it does not change the duty roster or recognize a face.';
+    ? 'Your correction reinforced a pattern that already had two reviews. It now has 3 corrections and trust 0.75; the later event’s similarity 0.95 meets the default 0.86 requirement. The signature uses camera, labels, and zones, so another person or behavior can match. A conflicting review lowers trust but does not automatically veto future matches. The roster is unchanged.'
+    : 'The cleaner’s activity pattern already has 2 corrections, below the default threshold of 3. It also needs trust at least 0.70 and similarity at least 0.86. Select the cleaner and mark the visit as expected. That adds your judgment to memory; it does not change the duty roster or recognize identity or behavior.';
+  if (/chat|install|telegram/.test(q)) return 'These answers are authored for the selected browser scenario; your questions stay in this page. Installed conversational Ask Watchwise chat is planned. The installed Telegram channel already delivers alert cards with Expected, Real, Undo, Why, Look closer, and Snooze actions.';
   if (/local|cloud|privacy|data|model/.test(q)) return 'Watchwise runs models locally by default. In a hybrid profile, text can go to your chosen cloud provider while frames stay local; a full cloud profile sends images and text. This website uses only illustrated records in your browser—no cameras, model calls, or API keys.';
   if (/why|alert|happen|visit|decision|explain|expected|summary/.test(q)) return event.answer;
   return `I can explain the selected ${event.short.toLowerCase()} event, its evidence, the filtered activity, or how corrections affect memory. Try “Why did you alert me?” or “What evidence did you use?” Answers here are limited to this illustrated event record.`;

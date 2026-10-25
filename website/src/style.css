@@ -197,6 +197,8 @@
   .learning-nudge p { color: #65735c; font-size: 11px; line-height: 1.8; }
   .learning-nudge strong { color: #526347; font-weight: 650; }
   .learning-nudge .text-link { margin-left: auto; white-space: nowrap; font-size: 11px; gap: 12px; }
+  .story-scope { font-size: 11px; line-height: 1.9; color: #65735c; max-width: 900px; }
+  .story-scope a { text-decoration: underline; text-underline-offset: 3px; }
 }
 
 @layer sections {
@@ -214,6 +216,24 @@
   .process-list p { font-size: 12px; line-height: 1.9; color: #5c6854; margin: 8px 0 12px; max-width: 395px; }
   .process-tag { font-size: 9px; color: #5c6854; letter-spacing: 1px; }
   .process-tag > span { padding-left: 16px; }
+  .verification-section { padding-bottom: 95px; }
+  .verification-card { display: grid; grid-template-columns: 1fr 1fr; gap: 36px 65px; padding: 37px 39px 0; border: 1px solid #cdd8c1; background: #eff3e7; border-radius: 10px; }
+  .verification-intro .eyebrow { display: flex; align-items: center; gap: 10px; font-size: 9px; color: #587047; }
+  .verification-intro h2 { font-size: 29px; line-height: 1.3; font-weight: 550; letter-spacing: -1px; margin: 17px 0; }
+  .verification-intro > p:not(.eyebrow), .verification-record p, .verification-limits p { font-size: 12px; line-height: 1.85; color: #5c6854; }
+  .verification-intro .text-link { margin-top: 13px; font-size: 11px; }
+  .verified-flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+  .verified-flow li { display: flex; gap: 13px; }
+  .verified-flow li > span { flex-shrink: 0; width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: #dfe9d1; font-size: 11px; color: #52743d; }
+  .verified-flow h3, .verification-limits h3 { font-size: 13px; font-weight: 700; margin: 2px 0 5px; }
+  .verification-record .verification-scope { margin-top: 20px; font-size: 10px; }
+  .verification-limits { grid-column: 1 / -1; border-top: 1px solid #d2ddc5; }
+  .verification-limits summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 19px 0; cursor: pointer; list-style: none; font-size: 12px; font-weight: 650; }
+  .verification-limits summary::-webkit-details-marker { display: none; }
+  .verification-limits summary > span { font-size: 20px; font-weight: 400; }
+  .verification-limits[open] summary > span { transform: rotate(45deg); }
+  .verification-limit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 25px; padding-bottom: 28px; }
+  .verification-limits code { font-size: 11px; overflow-wrap: anywhere; }
   .setup-section { padding: 78px 0 72px; background: #eaf0e1; border-top: 1px solid #dce4d1; border-bottom: 1px solid #dce4d1; }
   .setup-section .section-topline { margin-bottom: 40px; }
   .setup-section h2 { font-size: 37px; letter-spacing: -1.5px; }
@@ -306,6 +326,10 @@
     .learning-nudge { align-items: flex-start; }
     .learning-nudge strong { display: block; }
     .how-section { gap: 45px; padding-top: 75px; padding-bottom: 75px; }
+    .verification-card { gap: 27px; padding: 29px 26px 0; }
+    .verification-intro h2 { font-size: 25px; }
+    .verification-section { padding-bottom: 75px; }
+    .verification-limit-grid { grid-template-columns: 1fr; gap: 19px; }
     .how-intro h2, .installation h2 { font-size: 35px; }
     .process-list li { gap: 16px; }
     .process-list h3 { font-size: 17px; }
@@ -402,6 +426,7 @@
     .nudge-icon { width: 26px; height: 26px; font-size: 17px; }
     .learning-nudge p { font-size: 10px; }
     .learning-nudge .text-link { grid-column: 2; margin: -4px 0 0; width: fit-content; font-size: 11px; }
+    .story-scope { font-size: 10px; }
     .evidence-timeline details p { font-size: 12px; }
     .evidence-timeline summary { font-size: 12px; padding-bottom: 3px; }
     .conversation { height: 220px; }
@@ -417,6 +442,11 @@
     .how-intro .text-link { margin-top: 13px; }
     .process-list li { padding: 24px 0; gap: 18px; }
     .process-list p { font-size: 12px; }
+    .verification-section { padding-bottom: 60px; }
+    .verification-card { grid-template-columns: 1fr; padding: 25px 21px 0; gap: 25px; }
+    .verification-intro .eyebrow { font-size: 8px; letter-spacing: .7px; }
+    .verification-intro h2 { font-size: 27px; }
+    .verification-limits summary { font-size: 11px; }
     .setup-section { padding: 55px 0; }
     .setup-section h2 { font-size: 32px; }
     .setup-section .section-topline { margin-bottom: 28px; }

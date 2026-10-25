@@ -137,6 +137,9 @@ $('#panel-decision').addEventListener('click', (e) => {
   }
   if (action === 'replay') {
     state.replayed = true;
+    // Replaying changes global totals and filtered-event answers. Discard the
+    // prior story's answers so every event reflects the current scenario state.
+    state.conversations = {};
     selectEvent('return');
     $('#panel-decision').focus({ preventScroll: true });
     announce('Next Thursday: matching activity resolved from memory, without a model call.');

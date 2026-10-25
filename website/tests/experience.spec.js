@@ -40,8 +40,8 @@ test('each event keeps its scene, decision, evidence, and conversation coherent'
   await expectCounts(page, 4, 2, 2);
 
   const cases = [
-    { id: 'headlights', camera: 'Driveway', headline: 'Just passing through.', decision: 'Headlights. Nothing more.', evidence: 'A familiar signature', answer: '6 corrections', count: 3 },
-    { id: 'courier', camera: 'Front entry', headline: 'A delivery. Then on their way.', decision: 'Your parcel has arrived.', evidence: 'Approach', answer: 'does not identify the courier', count: 3 },
+    { id: 'headlights', camera: 'Driveway', headline: 'Just passing through.', decision: 'Headlights. Nothing more.', evidence: 'A familiar signature', answer: '20 corrections', count: 3 },
+    { id: 'courier', camera: 'Front entry', headline: 'A delivery at the door.', decision: 'A parcel at the door.', evidence: 'Review received', answer: 'does not identify the courier', count: 3 },
     { id: 'cleaner', camera: 'Side entry', headline: 'Expected by you. Unclear to Watchwise.', decision: 'A familiar visit, still uncertain.', evidence: 'Camera health checked', answer: 'only two corrections', count: 4 },
     { id: 'visitor', camera: 'Side entry', headline: 'Someone at the side gate.', decision: 'Worth your attention.', evidence: 'Camera health checked', answer: 'continued presence', count: 4 },
   ];
@@ -157,7 +157,7 @@ test('suggested and typed questions use the selected record and keep event-speci
   await expect(page.locator('#conversation .chat-message')).toHaveCount(1);
   await page.getByRole('textbox', { name: 'Ask about the selected event' }).fill('Explain this decision');
   await page.getByRole('button', { name: 'Send question' }).click();
-  await expect(page.locator('#conversation .assistant-message').last()).toContainText('parcel placed');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('carrying a parcel');
   await expect(page.locator('#question')).toHaveValue('');
   await expect(page.locator('#question')).toBeFocused();
   await selectEvent(page, 'visitor');
@@ -167,6 +167,52 @@ test('suggested and typed questions use the selected record and keep event-speci
   await page.locator('#question').fill('Can you order a pizza?');
   await page.locator('#question').press('Enter');
   await expect(page.locator('#conversation .assistant-message').last()).toContainText('limited to this illustrated event record');
+});
+
+test('replay refreshes answers across events and preserves learning safeguards', async ({ page }) => {
+  await correctCleaner(page);
+  await tab(page, 'Ask Watchwise').click();
+  await page.getByRole('button', { name: 'What did you filter out?' }).click();
+  await expect(page.locator('#conversation .assistant-message').last()).not.toContainText('later matching visit');
+  await tab(page, 'Decision').click();
+  await page.getByRole('button', { name: 'See the next matching visit' }).click();
+  await selectEvent(page, 'cleaner');
+  await tab(page, 'Ask Watchwise').click();
+  await expect(page.locator('#conversation .chat-message')).toHaveCount(1);
+  await page.getByRole('button', { name: 'What did you filter out?' }).click();
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('later matching visit was also resolved by memory');
+  await page.locator('#question').fill('Does memory recognize the cleaner?');
+  await page.locator('#question').press('Enter');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('another person or behavior can match');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('does not automatically veto');
+  await page.locator('#question').fill('Can I use installed chat?');
+  await page.locator('#question').press('Enter');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('Installed conversational Ask Watchwise chat is planned');
+});
+
+test('live verification is separate from story values and exposes the remaining limits', async ({ page }) => {
+  await page.getByRole('link', { name: 'Read what passed in the real-world test' }).click();
+  await expect(page).toHaveURL(/#live-verification$/);
+  await expect(page.locator('.verification-record')).toContainText('One indoor camera setup');
+  await page.locator('.verification-limits summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.verification-limit-grid')).toBeVisible();
+  await expect(page.locator('.verification-limits')).toContainText('does not yet receive arming state');
+  await expect(page.locator('.verification-limits')).toContainText('phone playback still needs');
+  await expect(page.locator('.verification-limits')).toContainText('exceeded the model’s context');
+  await expect(page.locator('.verification-limits')).toContainText('exceeded 16 GB');
+  await expect(page.locator('.verification-limits summary')).toBeFocused();
+});
+
+test('reduced motion and clipboard-denied fallback remain usable', async ({ page }) => {
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+  expect(await page.locator('html').evaluate((element) => getComputedStyle(element).scrollBehavior)).toBe('auto');
+  await tab(page, 'Decision').focus();
+  expect(await tab(page, 'Decision').evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('solid');
+  await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { value: async () => { throw new Error('Clipboard denied'); } }));
+  await page.getByRole('button', { name: 'Copy setup commands' }).click();
+  await expect(page.locator('#copy-status')).toContainText('Commands selected');
+  expect(await page.evaluate(() => getSelection().toString())).toContain('watchwise serve');
 });
 
 test('typed markup is displayed as text and cannot inject elements or execute scripts', async ({ page }) => {
@@ -205,6 +251,10 @@ for (const width of [320, 375, 390, 768]) {
       await expect(page.locator('#scene')).toBeVisible();
     };
     await expectNoOverflow();
+    await page.locator('.verification-limits summary').click();
+    await expect(page.locator('.verification-limit-grid')).toBeVisible();
+    await expectNoOverflow();
+    await page.locator('.verification-limits summary').click();
     await correctCleaner(page);
     await expectNoOverflow();
     await page.getByRole('button', { name: 'See the next matching visit' }).click();
