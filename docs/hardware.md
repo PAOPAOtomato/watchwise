@@ -1,7 +1,7 @@
 # Hardware and models
 
 This guide describes the published Python baseline identified in the
-[README](../README.md#source-and-availability). Concurrent local implementation
+[verification notes](verification.md#source-and-availability). Concurrent local implementation
 work is separate from the installation documented here.
 
 Watchwise configures three model roles. Screening and investigation are
