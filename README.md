@@ -151,7 +151,7 @@ model or policy score, not a measured probability of correctness.
 | Button | What it does |
 |---|---|
 | ✅ Expected | records benign feedback and reinforces a pattern; holding back later events also requires the correction, similarity, and trust thresholds below |
-| 🚨 Real | records suspicious feedback and reduces trust in an influenced false-alarm pattern |
+| 🚨 Alert me | records suspicious feedback (you want alerts like this) and reduces trust in an influenced false-alarm pattern |
 | 🔍 Look closer | requests a full investigation when one has not already run |
 | 🔇 Snooze | mutes that camera's cards for an hour by default; processing and recording continue |
 | ❓ Why | explains the stored decision, matched memory, and available investigation evidence |
@@ -213,7 +213,7 @@ HUMAN REVIEW  corrections -> pattern memory -> later matching decisions
 By default, a false-alarm pattern needs at least **3 corrections**, matching
 similarity **0.86**, and trust **0.70** to resolve an event at the gate. Trust is
 `(agreements + 1) / (agreements + disagreements + 2)`; correction count alone is
-not enough. Real feedback can lower trust, and Undo reverses its recorded effects.
+not enough. 🚨 Alert me feedback can lower trust, and Undo reverses its recorded effects.
 
 The gate's confidence is capped at `0.95` and otherwise equals trust × similarity.
 The policy fully suppresses a learned match only at confidence `0.85` or above;
@@ -285,7 +285,7 @@ for the source version and test scope.
   simulation does not measure visual accuracy, multi-camera capacity, or
   long-term reliability.
 * Memory can hold back a genuine event with the same signature as an expected one.
-  Different gestures or behaviors are not separated, and Real feedback is not a
+  Different gestures or behaviors are not separated, and 🚨 Alert me feedback is not a
   hard veto on later suppression. Trust thresholds, review records, and Undo help
   with correction but do not eliminate this risk.
 * The screener is not told the arming state. An ordinary-looking indoor person
