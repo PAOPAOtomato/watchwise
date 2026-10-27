@@ -208,6 +208,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     from watchwise.config import WatchwiseConfig, interpolate_env
     from watchwise.hw.detect import detect_hardware
     from watchwise.hw.profiles import available_clouds, load_catalog, recommend, resolve
+    from watchwise.setup.home import keep_owner_blocks
     from watchwise.setup.plan import apply, plan_file
     from watchwise.setup.render import build_config_dict, render_config
 
@@ -262,6 +263,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     WatchwiseConfig.model_validate(interpolate_env(yaml.safe_load(text)))
 
     config_path = Path(args.config) if args.config else root / DEFAULT_CONFIG
+    if config_path.is_file():
+        # Keep what the owner set with `telegram link` and /setup.
+        text = keep_owner_blocks(text, config_path.read_text(encoding="utf-8"))
+        WatchwiseConfig.model_validate(interpolate_env(yaml.safe_load(text)))
     changes = [plan_file(config_path, text, reason=f"profile {profile.name}")]
     for example, target, why in (
         (root / ".env.example", root / ".env", "secrets file (API keys), from .env.example"),
@@ -703,7 +708,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from watchwise.config import WatchwiseConfig
     from watchwise.service import create_app
 
-    config = WatchwiseConfig.load(resolve_config_path(args.config))
+    path = resolve_config_path(args.config)
+    config = WatchwiseConfig.load(path)
     if args.no_mqtt:
         config.mqtt.enabled = False
     host = args.host or config.service.host
@@ -712,7 +718,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         level=getattr(logging, config.service.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
-    uvicorn.run(create_app(config), host=host, port=port, log_level=config.service.log_level.lower())
+    # The path lets /setup (Telegram) save the owner's answers to this file.
+    app = create_app(config, config_path=path if path is not None and path.is_file() else None)
+    uvicorn.run(app, host=host, port=port, log_level=config.service.log_level.lower())
     return 0
 
 

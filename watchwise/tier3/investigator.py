@@ -18,7 +18,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 
-from watchwise.config import AgentSettings, MemorySettings
+from watchwise.config import AgentSettings, AlertRules, CameraSettings, MemorySettings
 from watchwise.memory.short_term import ShortTermMemory
 from watchwise.memory.store import Store
 from watchwise.tier3.backends.base import AgentBackend, ToolRunner
@@ -46,12 +46,33 @@ class Investigator:
         store: Store,
         agent_settings: AgentSettings,
         memory_settings: MemorySettings,
+        *,
+        cameras: dict[str, CameraSettings] | None = None,
+        alerts: AlertRules | None = None,
     ):
         self.backend = backend
         self.tool_ctx = tool_ctx
         self.store = store
         self.settings = agent_settings
         self.memory_settings = memory_settings
+        # What the owner said in /setup (D-060), updated in place by it.
+        self.cameras = cameras if cameras is not None else {}
+        self.alerts = alerts if alerts is not None else AlertRules()
+
+    def owner_context(self, ctx: AlertContext) -> str:
+        """What the owner said about this camera, and what they always want
+        an alert for, pinned for the whole investigation."""
+        parts: list[str] = []
+        spec = self.cameras.get(ctx.camera)
+        if spec is not None and spec.notes:
+            parts.append(f'The owner says camera {ctx.camera} looks at: "{spec.notes}".')
+        if self.alerts.always:
+            rules = "; ".join(f'"{rule}"' for rule in self.alerts.always)
+            parts.append(
+                f"The owner always wants an alert for: {rules}. If this event shows one of "
+                "these, conclude suspicious, even if it looks harmless."
+            )
+        return " ".join(parts)
 
     async def investigate(
         self, ctx: AlertContext, screen: ScreenResult | None
@@ -72,6 +93,9 @@ class Investigator:
             max_chars=self.memory_settings.short_term_max_chars,
         )
         memory.seed(ctx, screen)
+        owner = self.owner_context(ctx)
+        if owner:
+            memory.add("owner", owner, pinned=True)
         runner = ToolRunner(
             self.tool_ctx,
             memory,

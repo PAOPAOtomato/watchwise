@@ -18,6 +18,7 @@ Endpoints implemented (matching Frigate's HTTP API):
     GET /api/events/{id}/thumbnail.{ext}
     GET /api/{camera}/latest.jpg
     GET /api/{camera}/recordings/{ts}/snapshot.{fmt}
+    GET /api/faces
     POST /api/faces/{name}/register
 """
 
@@ -69,6 +70,7 @@ class FakeNVRState:
         # Face Library: name -> images registered; whether a face is in view.
         self.faces: dict[str, int] = {}
         self.face_in_view = True
+        self.face_recognition: dict[str, Any] = {"enabled": True, "recognition_threshold": 0.9}
         self.detector_stats: dict[str, dict[str, Any]] = {
             "ov": {"inference_speed": 8.5, "detection_start": 0.0}
         }
@@ -156,7 +158,7 @@ def build_fake_nvr(state: FakeNVRState | None = None) -> tuple[FastAPI, FakeNVRS
 
     @app.get("/api/config")
     async def config() -> dict[str, Any]:
-        return {"cameras": state.cameras, "mqtt": {"topic_prefix": "nvr"}}
+        return {"cameras": state.cameras, "mqtt": {"topic_prefix": "nvr"}, "face_recognition": state.face_recognition}
 
     @app.get("/api/stats")
     async def stats() -> dict[str, Any]:
@@ -282,6 +284,11 @@ def build_fake_nvr(state: FakeNVRState | None = None) -> tuple[FastAPI, FakeNVRS
             raise HTTPException(status_code=404, detail="no recordings for that time")
         shade = int(abs(frame_time) % 200)
         return Response(content=make_jpeg(shade=shade), media_type="image/jpeg")
+
+    @app.get("/api/faces")
+    async def faces() -> dict[str, list[str]]:
+        library = {name: [f"{name}-{i}.webp" for i in range(count)] for name, count in state.faces.items()}
+        return {"train": ["attempt-1.webp"], **library}
 
     @app.post("/api/faces/{name}/register")
     async def register_face(name: str, request: Request) -> JSONResponse:

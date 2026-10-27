@@ -141,6 +141,17 @@ CREATE TABLE IF NOT EXISTS note_requests (
     created_at      REAL NOT NULL,
     PRIMARY KEY (chat_id, message_id)
 );
+
+-- One card per incident per room (D-062): an event from another camera in
+-- the room joins the card of the event that opened it (the lead), whose
+-- notifications rows carry the messages.
+CREATE TABLE IF NOT EXISTS card_members (
+    review_id       TEXT NOT NULL,
+    channel         TEXT NOT NULL,
+    lead_review_id  TEXT NOT NULL,
+    created_at      REAL NOT NULL,
+    PRIMARY KEY (review_id, channel)
+);
 """
 
 
@@ -169,6 +180,10 @@ class Store:
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(alerts)")}
         if "summary" not in columns:
             self._conn.execute("ALTER TABLE alerts ADD COLUMN summary TEXT")
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(note_requests)")}
+        if "also" not in columns:
+            # The other cameras' corrections from the same tap on a room card.
+            self._conn.execute("ALTER TABLE note_requests ADD COLUMN also TEXT NOT NULL DEFAULT ''")
 
     def close(self) -> None:
         with self._lock:
@@ -323,20 +338,68 @@ class Store:
                 examples.append((str(row["verdict"]), str(text)))
         return examples
 
-    def add_note_request(self, chat_id: int | str, message_id: int, correction_id: int) -> None:
+    def add_note_request(self, chat_id: int | str, message_id: int, correction_ids: list[int]) -> None:
+        """A "What was wrong?" message about these corrections (one per camera
+        of a room card; the first is the card's own)."""
+        first, *also = [int(c) for c in correction_ids]
         self.execute(
-            "INSERT OR REPLACE INTO note_requests(chat_id, message_id, correction_id, created_at) "
-            "VALUES (?,?,?,?)",
-            (str(chat_id), int(message_id), int(correction_id), time.time()),
+            "INSERT OR REPLACE INTO note_requests(chat_id, message_id, correction_id, created_at, also) "
+            "VALUES (?,?,?,?,?)",
+            (str(chat_id), int(message_id), first, time.time(), ",".join(map(str, also))),
         )
 
-    def note_request(self, chat_id: int | str, message_id: int) -> int | None:
-        """The correction a "What was wrong?" message asked about, if any."""
+    def note_request(self, chat_id: int | str, message_id: int) -> list[int]:
+        """The corrections a "What was wrong?" message asked about (empty if none)."""
         row = self.query_one(
-            "SELECT correction_id FROM note_requests WHERE chat_id=? AND message_id=?",
+            "SELECT correction_id, also FROM note_requests WHERE chat_id=? AND message_id=?",
             (str(chat_id), int(message_id)),
         )
-        return int(row["correction_id"]) if row else None
+        if row is None:
+            return []
+        return [int(row["correction_id"]), *(int(c) for c in str(row["also"] or "").split(",") if c)]
+
+    # ---------------- room cards (D-062) ----------------
+
+    def add_card_member(self, lead_review_id: str, review_id: str, channel: str) -> None:
+        self.execute(
+            "INSERT OR IGNORE INTO card_members(review_id, channel, lead_review_id, created_at) VALUES (?,?,?,?)",
+            (review_id, channel, lead_review_id, time.time()),
+        )
+
+    def card_lead(self, review_id: str, channel: str) -> str | None:
+        """The event whose card this one joined, if it joined one."""
+        row = self.query_one(
+            "SELECT lead_review_id FROM card_members WHERE review_id=? AND channel=?", (review_id, channel)
+        )
+        return str(row["lead_review_id"]) if row else None
+
+    def card_members(self, lead_review_id: str, channel: str) -> list[str]:
+        """The events that joined this one's card, in the order they joined."""
+        rows = self.query(
+            "SELECT review_id FROM card_members WHERE lead_review_id=? AND channel=? ORDER BY created_at, rowid",
+            (lead_review_id, channel),
+        )
+        return [str(r["review_id"]) for r in rows]
+
+    def recent_cards(self, channel: str, since: float) -> list[sqlite3.Row]:
+        """Cards sent since then (one row per card, newest first), with the
+        camera and time span of the event each was sent for."""
+        return self.query(
+            "SELECT a.review_id, a.camera, a.start_time, a.end_time FROM alerts a "
+            "WHERE a.review_id IN (SELECT DISTINCT review_id FROM notifications WHERE channel=? AND created_at>=?) "
+            "ORDER BY a.start_time DESC",
+            (channel, since),
+        )
+
+    def alerts_on(self, cameras: list[str], since: float) -> list[sqlite3.Row]:
+        """Events on these cameras that started since then."""
+        if not cameras:
+            return []
+        marks = ",".join("?" for _ in cameras)
+        return self.query(
+            f"SELECT * FROM alerts WHERE camera IN ({marks}) AND start_time>=? ORDER BY start_time",
+            (*cameras, since),
+        )
 
     def set_correction_note(self, correction_id: int, note: str) -> bool:
         """False when the correction is gone (undone)."""

@@ -539,3 +539,49 @@ def test_after_a_recent_real_an_investigation_can_demote_but_not_hide(policy, ar
     assert decision.disposition is expected
     if confidence >= 0.95 and expected is Disposition.DOWNGRADED:
         assert decision.rationale.startswith("you recently marked this kind of event real")
+
+
+# ---------------- what the owner said in /setup (D-060) ----------------
+
+
+async def test_the_investigation_keeps_what_the_owner_said_in_view(tool_ctx, store):
+    from watchwise.config import AlertRules, CameraSettings
+
+    briefings: list[str] = []
+
+    class Reading(AgentBackend):
+        name = "reading"
+        model = "m"
+
+        async def run(self, ctx, screen, memory, runner):
+            briefings.append(memory.briefing())
+            return Conclusion(verdict=Verdict.SUSPICIOUS, confidence=0.9, conclusion="matches a rule")
+
+    cameras = {"cam_yard": CameraSettings(notes="the back garden; the dog is out in the mornings")}
+    alerts = AlertRules(always=["anyone climbing the fence"])
+    investigator = Investigator(Reading(), tool_ctx, store, AgentSettings(timeout_s=5.0), MemorySettings(),
+                                cameras=cameras, alerts=alerts)
+    await investigator.investigate(make_alert(camera="cam_yard"), UNCERTAIN)
+    assert 'camera cam_yard looks at: "the back garden; the dog is out in the mornings"' in briefings[0]
+    assert 'always wants an alert for: "anyone climbing the fence"' in briefings[0]
+
+    await investigator.investigate(make_alert(camera="cam_drive"), UNCERTAIN)
+    assert "back garden" not in briefings[1] and "climbing the fence" in briefings[1]
+
+
+async def test_other_angles_on_the_same_room_are_not_movement(investigator, tool_ctx, nvr_state):
+    """D-062: the case above, but cam_yard and cam_door watch cam_drive's room
+    from other angles: the same sighting, so nothing pushes it to suspicious."""
+    import time
+
+    from watchwise.config import CameraSettings
+
+    t0 = time.time()
+    for cam in ("cam_yard", "cam_door"):
+        nvr_state.add_event(event_id=f"e-{cam}", camera=cam, start_time=t0 + 20)
+    tool_ctx.config_cache["cameras"] = {
+        name: CameraSettings(room="hall") for name in ("cam_drive", "cam_yard", "cam_door")
+    }
+    inv = await investigator.investigate(make_alert(camera="cam_drive", labels=["person"], start_time=t0), UNCERTAIN)
+    assert inv.verdict is not Verdict.SUSPICIOUS
+    assert "cameras recorded activity" not in inv.conclusion

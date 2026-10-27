@@ -120,18 +120,20 @@ def render_config(profile: Profile, config: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def replace_top_level_block(text: str, key: str, value: Any) -> str:
+def replace_top_level_block(text: str, key: str, value: Any, *, comment: str | None = None) -> str:
     """Replace one top-level YAML mapping (or append it), leaving every other
-    line of the file -- including comments -- exactly as it was."""
+    line of the file -- including comments -- exactly as it was. ``comment``
+    goes above the block only when it is appended."""
     block = yaml.safe_dump({key: value}, sort_keys=False, default_flow_style=False, width=100)
     lines = text.splitlines(keepends=True)
     start = next(
-        (i for i, line in enumerate(lines) if re.match(rf"^{re.escape(key)}:\s*(#.*)?$", line)),
+        # Also a one-line flow mapping (`faces: {household: [Ray]}`).
+        (i for i, line in enumerate(lines) if re.match(rf"^{re.escape(key)}:(\s|$)", line)),
         None,
     )
     if start is None:
         prefix = text if text.endswith("\n") or not text else text + "\n"
-        return prefix + ("\n" if prefix else "") + block
+        return prefix + ("\n" if prefix else "") + (f"{comment}\n" if comment else "") + block
     end = start + 1
     while end < len(lines) and (lines[end].startswith((" ", "\t")) or not lines[end].strip()):
         end += 1

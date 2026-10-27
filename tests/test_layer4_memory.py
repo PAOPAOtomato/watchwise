@@ -471,9 +471,11 @@ def test_a_note_request_links_a_reply_to_its_correction(store):
                         "signature": "webcam|person|nozone", "labels": ["person"], "zones": []}, "screened")
     cid = int(store.execute("INSERT INTO corrections(review_id, signature, human_verdict, created_at) "
                             "VALUES ('nr-1', 'webcam|person|nozone', 'suspicious', 1.0)").lastrowid)
-    store.add_note_request(555, 900, cid)
-    assert store.note_request(555, 900) == cid
-    assert store.note_request(555, 901) is None and store.note_request(556, 900) is None
+    store.add_note_request(555, 900, [cid])
+    assert store.note_request(555, 900) == [cid]
+    assert store.note_request(555, 901) == [] and store.note_request(556, 900) == []
+    store.add_note_request(555, 902, [cid, 41, 42])  # a room card: one per camera (D-062)
+    assert store.note_request(555, 902) == [cid, 41, 42]
     assert store.set_correction_note(cid, "waving both arms")
     store.execute("DELETE FROM corrections WHERE id=?", (cid,))
     assert not store.set_correction_note(cid, "too late"), "an undone correction takes no note"

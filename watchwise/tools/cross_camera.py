@@ -8,12 +8,17 @@ it costs one HTTP call.
 
 The tool reports a *track*: which cameras saw what, in time order, with the
 gaps between them, so the agent can reason about a path rather than a set.
+
+Cameras configured in the same room as the alerting one (D-062) are another
+angle on the same sighting, not a step along a path: they are reported apart
+(``same_room_activity``) and left out of the count and the interpretation.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from watchwise.config import same_room
 from watchwise.timeutil import safe_strftime
 from watchwise.tools.base import ForensicTool, ToolContext, obj_schema
 
@@ -29,6 +34,8 @@ async def _cross_reference_cameras(ctx: ToolContext, args: dict[str, Any]) -> di
     cameras = requested or await ctx.camera_names()
     if exclude:
         cameras = [c for c in cameras if c != exclude]
+    # The service's camera settings (which room each camera watches).
+    same = set(same_room(ctx.config_cache.get("cameras") or {}, exclude)) if exclude else set()
 
     after = start - window_before
     before = start + window_after
@@ -59,23 +66,42 @@ async def _cross_reference_cameras(ctx: ToolContext, args: dict[str, Any]) -> di
                 "score": e.get("score") or e.get("top_score"),
                 "offset_s": round(e_start - start, 1),
                 "local_time": safe_strftime(e_start) if e_start else None,
+                "same_room": e.get("camera") in same,
             }
         )
     timeline.sort(key=lambda x: x["start_time"])
 
+    elsewhere = [item for item in timeline if not item["same_room"]]
     by_camera: dict[str, int] = {}
-    for item in timeline:
+    for item in elsewhere:
         cam = str(item["camera"])
         by_camera[cam] = by_camera.get(cam, 0) + 1
+    same_room_activity: dict[str, int] = {}
+    for item in timeline:
+        if item["same_room"]:
+            same_room_activity[str(item["camera"])] = same_room_activity.get(str(item["camera"]), 0) + 1
 
     return {
         "window": {"after": after, "before": before, "anchor": start},
         "cameras_searched": cameras,
-        "event_count": len(timeline),
+        "event_count": len(elsewhere),
         "cameras_with_activity": by_camera,
+        "same_room_activity": same_room_activity,
         "timeline": timeline[:50],
-        "interpretation": _interpret(timeline, by_camera, exclude),
+        "interpretation": _interpret(elsewhere, by_camera, exclude) + _same_room_note(same_room_activity, exclude),
     }
+
+
+def _same_room_note(activity: dict[str, int], camera: str | None) -> str:
+    if not activity:
+        return ""
+    names = ", ".join(activity)
+    count = sum(activity.values())
+    return (
+        f" {names} watch{'es' if len(activity) == 1 else ''} the same room as {camera} from another "
+        f"angle; {'its' if len(activity) == 1 else 'their'} {count} event(s) are the same sighting, "
+        "not movement through the property."
+    )
 
 
 def _interpret(
@@ -108,7 +134,9 @@ TOOL = ForensicTool(
         "Find what every OTHER camera recorded around the same time, as an ordered "
         "timeline with offsets relative to the alert. Use this to distinguish a "
         "localized or spurious trigger from a person actually moving across the "
-        "property, and to establish direction of travel."
+        "property, and to establish direction of travel. Cameras in the same room as "
+        "the excluded (alerting) camera are listed apart, under same_room_activity: "
+        "another angle on the same sighting, not movement."
     ),
     category="cross_camera",
     input_schema=obj_schema(

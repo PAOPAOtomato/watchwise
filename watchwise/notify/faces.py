@@ -8,7 +8,6 @@ anything itself, so any channel can use it.
 
 from __future__ import annotations
 
-import re
 import secrets
 import time
 from collections import OrderedDict
@@ -17,8 +16,8 @@ from dataclasses import dataclass
 
 from watchwise.config import FaceSettings
 from watchwise.nvr.client import NVRClient, NVRError
+from watchwise.setup.home import NAME
 
-NAME = re.compile(r"^[A-Za-z0-9_]{1,32}$")
 HOLD_S = 300.0  # how long a capture waits for its confirmation
 MAX_PENDING = 16
 
@@ -80,8 +79,8 @@ class FaceEnroller:
         message = f"✅ Added a face for {capture.name} to Frigate's Face Library."
         if capture.name.lower() not in {n.lower() for n in self.faces.household}:
             message += (
-                f" To have Watchwise hold {capture.name} back while you're home, add them to "
-                "faces.household in Watchwise's config."
+                f" To have Watchwise hold {capture.name} back while you're home, add them as a "
+                "resident with /setup."
             )
         return message
 

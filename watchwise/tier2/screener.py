@@ -12,7 +12,7 @@ import asyncio
 import logging
 from typing import Any
 
-from watchwise.config import VLMSettings
+from watchwise.config import AlertRules, CameraSettings, VLMSettings
 from watchwise.memory.long_term import PatternLibrary
 from watchwise.tier2 import prompts
 from watchwise.tier2.gate import GateResult, ScreeningGate
@@ -33,6 +33,8 @@ class Screener:
         patterns: PatternLibrary | None = None,
         *,
         arming: Any = None,
+        cameras: dict[str, CameraSettings] | None = None,
+        alerts: AlertRules | None = None,
     ):
         self.gate = gate
         self.sampler = sampler
@@ -41,6 +43,10 @@ class Screener:
         self.patterns = patterns
         # Anything with get() -> {"state": ...}; the prompt says who should be home.
         self.arming = arming
+        # What the owner said in /setup (D-060). The service's own config
+        # objects, which /setup updates in place.
+        self.cameras = cameras if cameras is not None else {}
+        self.alerts = alerts if alerts is not None else AlertRules()
         self._sem = asyncio.Semaphore(max(1, settings.max_concurrency))
         self.stats = {"gated": 0, "screened": 0, "errors": 0, "summaries": 0}
 
@@ -86,7 +92,14 @@ class Screener:
                     error="no_frames",
                 )
 
-            prompt = prompts.build_prompt(ctx, len(frames), extra, arming=self._arming_state())
+            prompt = prompts.build_prompt(
+                ctx,
+                len(frames),
+                extra,
+                arming=self._arming_state(),
+                camera_notes=self.camera_notes(ctx.camera),
+                always_alert=self.alerts.always,
+            )
             result = await self.vlm.screen(frames, prompt, prompts.SYSTEM)
 
         self.stats["screened"] += 1
@@ -121,6 +134,8 @@ class Screener:
                 arming=self._arming_state(),
                 concerns=self.settings.summary_concerns,
                 owner_real=self._owner_real(ctx),
+                camera_notes=self.camera_notes(ctx.camera),
+                always_alert=self.alerts.always,
             )
             raw = await self.vlm.describe(frames, prompt, prompts.SUMMARY_SYSTEM)
         self.stats["summaries"] += 1
@@ -131,6 +146,10 @@ class Screener:
 
     def _arming_state(self) -> str | None:
         return (self.arming.get() or {}).get("state") if self.arming is not None else None
+
+    def camera_notes(self, camera: str) -> str:
+        spec = self.cameras.get(camera)
+        return spec.notes if spec is not None else ""
 
     def _memory_matches(self, ctx: AlertContext) -> list[Any]:
         if self.patterns is None:

@@ -314,7 +314,7 @@ async def test_real_marks_it_worth_alerting(system):
     await settle(sys_)
     await press(sys_, state, "fb:real:rev-a")
     assert sys_.store.query("SELECT human_verdict FROM corrections")[0]["human_verdict"] == "suspicious"
-    assert "Marked real" in state.edits[-1]["text"]
+    assert "You asked for alerts like this" in state.edits[-1]["text"]
 
 
 async def test_after_real_the_owner_can_say_what_was_wrong(system):
@@ -602,7 +602,7 @@ async def test_face_takes_the_cameras_frame_and_asks_before_adding_it(system, nv
     state.push_button(CHAT, add, message_id=asked["message_id"])
     await sys_.bot.poll_once()
     assert nvr_state.faces == {"alex": 1}
-    assert "Added a face for alex" in state.sent[-1]["text"] and "faces.household" in state.sent[-1]["text"]
+    assert "Added a face for alex" in state.sent[-1]["text"] and "resident with /setup" in state.sent[-1]["text"]
 
     state.push_button(CHAT, add, message_id=asked["message_id"])  # a second tap
     await sys_.bot.poll_once()
@@ -626,3 +626,387 @@ async def test_face_explains_what_it_needs(system, nvr_state):
     state.push_button(CHAT, state.buttons(asked)[1], message_id=asked["message_id"])  # Cancel
     await sys_.bot.poll_once()
     assert "nothing was added" in state.sent[-1]["text"] and nvr_state.faces == {}
+
+
+# ---------------------------------------------------------------- /setup and /arm (D-060)
+
+
+SETUP_CONFIG = """\
+# A hand-written test config.
+nvr:
+  base_url: http://fake-nvr
+mqtt:
+  enabled: false
+vlm:
+  backend: stub
+  model: stub-vlm
+  frames: 2
+agent:
+  backend: scripted
+  max_concurrency: 1
+  timeout_s: 30
+memory:
+  db_path: {db}
+  embedding_dim: 128
+notify:
+  telegram:
+    enabled: true
+    chat_ids: [{chat}]
+    min_interval_s: 0
+"""
+
+
+@pytest.fixture
+async def home(nvr_client, nvr_state, tg, tmp_path):
+    """The service as `serve --config <file>` builds it, with one camera and
+    Ray in Frigate's Face Library."""
+    from watchwise.config import WatchwiseConfig
+
+    api, state, _ = tg
+    nvr_state.cameras = {"webcam": {"enabled": True}}
+    nvr_state.faces = {"Ray": 4}
+    path = tmp_path / "watchwise.yml"
+    path.write_text(SETUP_CONFIG.format(db=tmp_path / "watchwise.db", chat=CHAT), encoding="utf-8")
+    config = WatchwiseConfig.load(path)
+    sys_ = build_system(config, nvr_client=nvr_client, start_sources=False, telegram_api=api, config_path=path)
+    sys_.background = [sys_.notifier]
+    await sys_.start()
+    yield sys_, state, path
+    await sys_.bot.stop()
+    await sys_.stop()
+
+
+async def _send(sys_, state, text: str, chat: int = CHAT) -> list[dict]:
+    n = len(state.sent)
+    state.push_message(chat, text)
+    await sys_.bot.poll_once()
+    return state.sent[n:]
+
+
+async def _tap(sys_, state, data: str, message: dict) -> list[dict]:
+    n = len(state.sent)
+    state.push_button(CHAT, data, message_id=message["message_id"])
+    await sys_.bot.poll_once()
+    return state.sent[n:]
+
+
+async def test_setup_asks_shows_the_plan_and_saves_only_when_confirmed(home, nvr_state):
+    sys_, state, path = home
+    before = path.read_text(encoding="utf-8")
+
+    intro, camera = await _send(sys_, state, "/setup")
+    assert "nothing changes until you confirm" in intro["text"]
+    assert camera["method"] == "sendPhoto" and "1/4 · Camera webcam" in camera["text"]
+    assert state.buttons(camera) == ["su:cam:keep:0"]
+
+    noted, who = await _send(sys_, state, "my bedroom workspace; I sit at the desk most of the day")
+    assert "Noted for webcam" in noted["text"] and "2/4 · Who lives here?" in who["text"]
+    assert state.buttons(who) == ["su:who:0", "su:who:done"]
+    await _tap(sys_, state, "su:who:0", who)
+    assert state.edits[-1]["message_id"] == who["message_id"] and "✅ Ray" in str(state.edits[-1]["reply_markup"])
+    (who,) = await _send(sys_, state, "Alex, Mary Ann")
+    assert "I can't use Mary Ann" in who["text"]
+    labels = [b["text"] for row in who["reply_markup"]["inline_keyboard"] for b in row]
+    assert labels == ["✅ Ray", "✅ Alex", "Done"]
+
+    (always,) = await _tap(sys_, state, "su:who:done", who)
+    assert "3/4 · What should always alert you" in always["text"]
+    (arming,) = await _send(sys_, state, "anyone at the window\nsomeone carrying a ladder")
+    assert "4/4 · When no arming state is set" in arming["text"] and "Now: Away" in arming["text"]
+
+    (plan,) = await _tap(sys_, state, "su:arm:armed_home", arming)
+    text = plan["text"]
+    assert "<b>The plan</b>" in text and "📷 webcam: “my bedroom workspace; I sit at the desk most of the day” (new)" in text
+    assert "👪 Residents: Ray, Alex (+ Ray, + Alex)" in text and "• someone carrying a ladder (new)" in text
+    assert "Home (was Away)" in text and "Apply changes cameras, faces, alerts, arming in <code>watchwise.yml</code>" in text
+    assert "go into the model prompts (stub stub-vlm)" in text
+    assert state.buttons(plan) == ["su:plan:apply", "su:plan:diff", "su:plan:restart", "su:plan:cancel"]
+    assert path.read_text(encoding="utf-8") == before, "nothing is written before Apply"
+
+    (diff,) = await _tap(sys_, state, "su:plan:diff", plan)
+    assert diff["text"].startswith("<pre>") and "+cameras:" in diff["text"]
+
+    saved, faces = await _tap(sys_, state, "su:plan:apply", plan)
+    backup = next(path.parent.glob("watchwise.yml.bak-*"))
+    assert f"the previous version is <code>{backup.name}</code>" in saved["text"]
+    assert backup.read_text(encoding="utf-8") == before and state.buttons(saved) == ["su:undo"]
+    written = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert written["faces"] == {"household": ["Ray", "Alex"]} and written["arming"] == {"default": "armed_home"}
+    assert path.read_text(encoding="utf-8").startswith(before), "the rest of the file is untouched"
+
+    # The running service uses the answers at once.
+    assert sys_.config.faces.household == ["Ray", "Alex"] and sys_.pipeline.faces.household == ["Ray", "Alex"]
+    assert sys_.screener.camera_notes("webcam").startswith("my bedroom workspace")
+    assert sys_.screener.alerts.always == ["anyone at the window", "someone carrying a ladder"]
+    assert sys_.arming.get()["state"] == "armed_home"
+    owner = sys_.investigations.investigator.owner_context(make_alert(camera="webcam"))
+    assert "my bedroom workspace" in owner and "someone carrying a ladder" in owner
+
+    assert "• Ray: 4 photos ✅" in faces["text"] and "• Alex: 0 photos" in faces["text"]
+    assert state.buttons(faces) == ["su:face:Alex", "su:check", "su:done"]
+    (capture,) = await _tap(sys_, state, "su:face:Alex", faces)
+    assert capture["method"] == "sendPhoto" and "Face Library as Alex?" in capture["text"]
+    assert state.buttons(capture)[0].startswith("fc:add:") and nvr_state.faces == {"Ray": 4}
+
+    (undone,) = await _tap(sys_, state, "su:undo", saved)
+    assert "Undone" in undone["text"] and path.read_text(encoding="utf-8") == before
+    assert sys_.config.faces.household == [] and sys_.screener.camera_notes("webcam") == ""
+    assert sys_.arming.get()["state"] == "armed_away"
+    assert "Nothing to undo" in (await _tap(sys_, state, "su:undo", saved))[0]["text"]
+
+
+async def test_setup_can_be_cancelled_and_ignores_old_buttons(home):
+    sys_, state, path = home
+    before = path.read_text(encoding="utf-8")
+    _, camera = await _send(sys_, state, "/setup")
+    (cancelled,) = await _send(sys_, state, "/cancel")
+    assert cancelled["text"] == "Cancelled; nothing was changed."
+    assert "ended or expired" in (await _tap(sys_, state, "su:cam:keep:0", camera))[0]["text"]
+
+    _, camera = await _send(sys_, state, "/setup")
+    (who,) = await _tap(sys_, state, "su:cam:keep:0", camera)
+    assert "2/4" in who["text"]
+    assert "answered already" in (await _tap(sys_, state, "su:cam:keep:0", camera))[0]["text"]
+    (always,) = await _tap(sys_, state, "su:who:done", who)
+    await _tap(sys_, state, "su:alw:keep", always)
+    (reminder,) = await _send(sys_, state, "home please")
+    assert reminder["text"] == "Please use the buttons above, or /cancel."
+    assert path.read_text(encoding="utf-8") == before
+
+
+async def test_setup_plans_again_if_the_file_changed_before_apply(home):
+    sys_, state, path = home
+    _, camera = await _send(sys_, state, "/setup")
+    (who,) = await _tap(sys_, state, "su:cam:keep:0", camera)
+    await _tap(sys_, state, "su:who:0", who)
+    (always,) = await _tap(sys_, state, "su:who:done", who)
+    (arming,) = await _tap(sys_, state, "su:alw:keep", always)
+    (plan,) = await _tap(sys_, state, "su:arm:armed_away", arming)
+    assert "Apply changes faces in" in plan["text"]
+
+    edited = path.read_text(encoding="utf-8") + "\n# a hand edit meanwhile\n"
+    path.write_text(edited, encoding="utf-8")
+    (again,) = await _tap(sys_, state, "su:plan:apply", plan)
+    assert "changed after I showed you the plan, so I wrote nothing" in again["text"]
+    assert path.read_text(encoding="utf-8") == edited and not list(path.parent.glob("*.bak-*"))
+    saved, _ = await _tap(sys_, state, "su:plan:apply", again)
+    assert "Saved" in saved["text"] and "# a hand edit meanwhile" in path.read_text(encoding="utf-8")
+
+
+async def test_setup_with_nothing_new_writes_nothing(home):
+    sys_, state, path = home
+    before = path.read_text(encoding="utf-8")
+    _, camera = await _send(sys_, state, "/setup")
+    (who,) = await _tap(sys_, state, "su:cam:keep:0", camera)
+    (always,) = await _tap(sys_, state, "su:who:done", who)
+    (arming,) = await _tap(sys_, state, "su:alw:keep", always)
+    (plan,) = await _tap(sys_, state, "su:arm:armed_away", arming)
+    assert "Nothing to change" in plan["text"] and path.read_text(encoding="utf-8") == before
+
+
+async def _check(sys_, state, faces_seen, *, reviews=()) -> dict:
+    import asyncio
+
+    sys_.bot.setup.check_s, sys_.bot.setup.quiet_s = 5.0, 0.2
+    state.push_button(CHAT, "su:check", message_id=1)
+    await sys_.bot.poll_once()
+    assert "Walk past a camera" in state.sent[-1]["text"]
+    await asyncio.sleep(0.05)  # the check is listening
+    for face in faces_seen:
+        sys_.pipeline.note_face(face)
+    for review in reviews:
+        await sys_.pipeline.handle(review)
+    await asyncio.gather(*sys_.bot.tasks)
+    return state.sent[-1]
+
+
+async def test_the_recognition_check_says_what_frigate_saw(home):
+    sys_, state, _ = home
+    sys_.config.faces.household = ["Ray"]
+    sys_.arming.set("armed_home")
+    named = make_alert(review_id="walk-1", camera="webcam", labels=["person"])
+    named.sub_labels = ["ray"]
+    ok = await _check(sys_, state, [{"id": "o1", "name": "Ray", "score": 0.95, "camera": "webcam"}], reviews=[named])
+    assert "✅ <b>Recognized Ray</b> (0.95) on webcam" in ok["text"] and "held back" in ok["text"]
+
+    close = await _check(sys_, state, [{"id": "o2", "name": "Ray", "score": 0.81, "camera": "webcam"}])
+    assert "best guess was <b>Ray</b> at 0.81, below the 0.90 Frigate needs" in close["text"]
+    assert "su:face:Ray" in state.buttons(close)
+
+    nobody = await _check(sys_, state, [{"id": "o3", "name": None, "camera": "webcam"}] * 2)
+    assert "saw a face 2 times but matched nobody" in nobody["text"]
+
+    sys_.bot.setup.check_s = 0.2
+    state.push_button(CHAT, "su:check", message_id=1)
+    await sys_.bot.poll_once()
+    import asyncio
+
+    await asyncio.gather(*sys_.bot.tasks)
+    assert "No face reached Frigate's face recognition" in state.sent[-1]["text"]
+
+
+async def test_arm_shows_and_switches_the_arming_state(home):
+    sys_, state, _ = home
+    (status,) = await _send(sys_, state, "/arm")
+    assert "Arming: <b>Away</b> (nothing set yet" in status["text"]
+    assert state.buttons(status) == ["ar:armed_home", "ar:armed_away", "ar:armed_night", "ar:disarmed"]
+    state.push_button(CHAT, "ar:armed_home", message_id=status["message_id"])
+    await sys_.bot.poll_once()
+    assert sys_.arming.get()["state"] == "armed_home" and sys_.arming.get()["source"] == "telegram:tester"
+    assert "Arming: <b>Home</b> (since" in state.edits[-1]["text"] and state.answers[-1]["text"] == "Arming: Home"
+    await _send(sys_, state, "/arm night")
+    assert sys_.arming.get()["state"] == "armed_night"
+    assert "Send /arm home, away, night or off" in (await _send(sys_, state, "/arm banana"))[0]["text"]
+    assert sys_.arming.get()["state"] == "armed_night"
+
+
+async def test_strangers_get_no_setup_and_no_arming(home):
+    sys_, state, path = home
+    assert await _send(sys_, state, "/setup", chat=999) == []
+    assert await _send(sys_, state, "/arm away", chat=999) == []
+    assert sys_.arming.get()["source"] == "default"
+
+
+async def test_setup_explains_a_service_without_a_config_file(system):
+    sys_, state = system
+    (reply,) = await _send(sys_, state, "/setup")
+    assert "running without a config file" in reply["text"]
+
+
+def test_the_alert_me_button_replaces_real():
+    labels = [b["text"] for row in keyboard_markup("r", "full")["inline_keyboard"] for b in row]
+    assert "🚨 Alert me" in labels and "🚨 Real" not in labels
+
+
+async def test_the_diff_never_shows_a_secret_from_the_config(home):
+    sys_, state, path = home
+    text = path.read_text(encoding="utf-8").replace("mqtt:\n  enabled: false\n", "")
+    path.write_text(text + "mqtt:\n  enabled: false\n  password: hunter2\n", encoding="utf-8")
+    _, camera = await _send(sys_, state, "/setup")
+    (_, who) = await _send(sys_, state, "the hallway")
+    (always,) = await _tap(sys_, state, "su:who:done", who)
+    (arming,) = await _tap(sys_, state, "su:alw:keep", always)
+    (plan,) = await _tap(sys_, state, "su:arm:armed_away", arming)
+    (diff,) = await _tap(sys_, state, "su:plan:diff", plan)
+    assert "password: •••" in diff["text"] and "hunter2" not in diff["text"]
+
+
+# ---------------------------------------------------------------- rooms: one card per incident (D-062)
+
+
+def _in_garden(sys_) -> None:
+    from watchwise.config import CameraSettings
+
+    sys_.config.cameras.update({"cam_yard": CameraSettings(room="Garden"), "cam_drive": CameraSettings(room="garden")})
+
+
+def _person(review_id: str, camera: str, after_s: float = 0.0, label: str = "person"):
+    return make_alert(review_id=review_id, camera=camera, labels=[label], start_time=NIGHT_TS + after_s)
+
+
+def _cards(state) -> list[dict]:
+    return [m for m in state.sent if m["method"] in ("sendPhoto", "sendMessage") and m.get("reply_markup")
+            and any(b.startswith("fb:") for b in state.buttons(m))]
+
+
+async def test_two_cameras_in_one_room_share_one_card(system):
+    sys_, state = system
+    _in_garden(sys_)
+    await sys_.pipeline.handle(_person("rev-a", "cam_yard"))
+    await sys_.pipeline.handle(_person("rev-b", "cam_drive", after_s=5))
+    await settle(sys_)
+    assert len(_cards(state)) == 1, "the second camera's alert edits the room's card instead of buzzing again"
+    card = state.edits[-1]
+    assert card["message_id"] == state.sent[0]["message_id"]
+    assert "Person · Garden (cam_yard + cam_drive)" in card["text"] and "Also cam_drive: 🚨" in card["text"]
+    assert all(b.endswith(":rev-a") for b in state.buttons(card)), "the buttons are the card's own"
+    assert sys_.store.card_members("rev-a", "telegram") == ["rev-b"]
+
+
+async def test_other_rooms_and_later_events_get_their_own_cards(system):
+    sys_, state = system
+    _in_garden(sys_)
+    await sys_.pipeline.handle(_person("rev-a", "cam_yard"))
+    await sys_.pipeline.handle(_person("rev-b", "cam_door", after_s=5))  # no room: its own
+    await sys_.pipeline.handle(_person("rev-c", "cam_drive", after_s=600))  # same room, 10 min later
+    await settle(sys_)
+    assert len(_cards(state)) == 3
+    # A room card is joined by the room's *other* cameras; a camera's own next
+    # event (here 10 s later, with a new label) is not merged into it.
+    assert sys_.notifier._open_card_in_room(_person("rev-d", "cam_yard", after_s=10, label="car")) is None
+    assert sys_.notifier._open_card_in_room(_person("rev-e", "cam_drive", after_s=10)) == "rev-a"
+
+
+async def test_a_new_room_card_shows_what_the_other_camera_already_saw(system):
+    sys_, state = system
+    _in_garden(sys_)
+    await sys_.pipeline.handle(_person("rev-cat", "cam_drive", label="cat"))  # routine: no card
+    await sys_.notifier.drain()
+    assert _cards(state) == []
+    await sys_.pipeline.handle(_person("rev-a", "cam_yard", after_s=3))
+    await settle(sys_)
+    (card,) = _cards(state)
+    text = (state.edits[-1] if state.edits else card)["text"]
+    assert "🚨 Person, Cat · Garden (cam_yard + cam_drive)" in text, "the alert leads; the routine cat is listed"
+    assert "Also cam_drive: ℹ️" in text and sys_.store.card_members("rev-a", "telegram") == ["rev-cat"]
+
+
+async def test_a_tap_on_a_room_card_teaches_every_camera_and_undo_takes_all_back(system):
+    sys_, state = system
+    _in_garden(sys_)
+    await sys_.pipeline.handle(_person("rev-a", "cam_yard"))
+    await sys_.pipeline.handle(_person("rev-b", "cam_drive", after_s=5))
+    await settle(sys_)
+    corrected = lambda: sorted((r["review_id"], r["human_verdict"]) for r in sys_.store.query(  # noqa: E731
+        "SELECT review_id, human_verdict FROM corrections"))
+
+    await press(sys_, state, "fb:ok:rev-a")
+    assert corrected() == [("rev-a", "benign"), ("rev-b", "benign")]
+    assert "Also recorded for cam_drive." in state.edits[-1]["text"]
+    (undo,) = [b for b in state.buttons(state.edits[-1]) if b.startswith("fb:undo:")]
+    await press(sys_, state, undo)
+    assert corrected() == []
+
+    await press(sys_, state, "fb:real:rev-a")
+    assert corrected() == [("rev-a", "suspicious"), ("rev-b", "suspicious")]
+    asked = state.sent[-1]
+    assert "What was wrong?" in asked["text"]
+    state.push_message(CHAT, "climbing over the fence", reply_to=asked["message_id"])
+    await sys_.bot.poll_once()
+    notes = {r["review_id"]: r["note"] for r in sys_.store.query("SELECT review_id, note FROM corrections")}
+    assert notes == {"rev-a": "climbing over the fence", "rev-b": "climbing over the fence"}
+
+    await press(sys_, state, "fb:snooze:rev-a")
+    assert sys_.store.snoozed_until("cam_yard") and sys_.store.snoozed_until("cam_drive")
+    assert not sys_.store.snoozed_until("cam_door")
+    await press(sys_, state, "fb:why:rev-a")
+    why = state.sent[-1]["text"]
+    assert "(cam_yard," in why and "(cam_drive," in why
+
+
+async def test_setup_asks_the_room_of_each_camera_and_rooms_apply_at_once(home, nvr_state):
+    sys_, state, path = home
+    nvr_state.cameras = {"laptopcam": {"enabled": True}, "webcam": {"enabled": True}}
+    _, laptop = await _send(sys_, state, "/setup")
+    assert "Camera laptopcam</b> (1 of 2)" in laptop["text"]
+    _, room = await _send(sys_, state, "the bed side of the bedroom")
+    assert "Which room is <b>laptopcam</b> in?" in room["text"] and state.buttons(room) == ["su:room:0:own"]
+    noted, webcam = await _send(sys_, state, "Bedroom")
+    assert "laptopcam is in Bedroom" in noted["text"] and "Camera webcam</b> (2 of 2)" in webcam["text"]
+    (room,) = await _tap(sys_, state, "su:cam:keep:1", webcam)
+    assert state.buttons(room) == ["su:room:1:0", "su:room:1:own"] and "🏠 Bedroom" in str(room["reply_markup"])
+    (who,) = await _tap(sys_, state, "su:room:1:0", room)
+    (always,) = await _tap(sys_, state, "su:who:done", who)
+    (arming,) = await _tap(sys_, state, "su:alw:keep", always)
+    (plan,) = await _tap(sys_, state, "su:arm:armed_away", arming)
+    assert "📷 laptopcam · room Bedroom: “the bed side of the bedroom” (new)" in plan["text"]
+    assert "📷 webcam · room Bedroom: no notes (new)" in plan["text"]
+    await _tap(sys_, state, "su:plan:apply", plan)
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["cameras"]["webcam"] == {"room": "Bedroom"}
+
+    sent = len(_cards(state))
+    await sys_.pipeline.handle(_person("bed-1", "webcam"))
+    await sys_.pipeline.handle(_person("bed-2", "laptopcam", after_s=2))
+    await settle(sys_)
+    assert len(_cards(state)) == sent + 1, "the running service uses the rooms at once"
+    assert "Bedroom (webcam + laptopcam)" in state.edits[-1]["text"]

@@ -230,3 +230,10 @@ def test_a_named_person_is_still_a_person():
         "data": {"objects": ["person-verified", "person", "car"], "sub_labels": ["Ray"]}}})
     assert ctx.labels == ["person", "car"] and ctx.sub_labels == ["Ray"]
     assert ctx.signature() == "c|car,person|nozone"
+
+
+async def test_the_face_library_lists_people_not_frigates_training_folder(nvr_client, nvr_state):
+    """D-060: /setup offers the Face Library's names as residents."""
+    assert await nvr_client.faces() == {}
+    nvr_state.faces = {"Ray": 4, "alex": 1}
+    assert await nvr_client.faces() == {"Ray": 4, "alex": 1}

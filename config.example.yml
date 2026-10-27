@@ -157,6 +157,27 @@ faces:
   alert_on_unknown: true
   min_unknown_attempts: 2
 
+# The rest of what /setup in Telegram asks; it writes these blocks (and
+# faces.household) after you confirm, backs up this file first, and the
+# running service uses them at once. Safe to edit by hand.
+# What each camera looks at, in your words. The notes go into the model
+# prompts: with a cloud model, they are sent to its provider.
+# room: cameras in one room share one card per incident, a tap on it teaches
+# all of them, and an investigation reads them as one view, not as movement.
+cameras: {} # e.g. {webcam: {notes: "my bedroom workspace; I sit at the desk most days", room: bedroom}}
+rooms:
+  # Two cameras' events in one room are one incident when they overlap in
+  # time, or one starts within this many seconds of the other's end.
+  merge_window_s: 30
+# What should always alert, even at home. The vision model checks every event
+# for these (sent to its provider, with a cloud model); a match alerts at once
+# and can only raise an event, never lower one.
+alerts:
+  always: [] # e.g. ["anyone at the window"]
+# Assumed while no arming state is set (/arm in Telegram, or POST /arming).
+arming:
+  default: armed_away # armed_away | armed_night | armed_home | disarmed
+
 service:
   host: 127.0.0.1
   port: 5055

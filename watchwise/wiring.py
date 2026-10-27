@@ -12,6 +12,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from watchwise.config import WatchwiseConfig
@@ -23,7 +24,7 @@ from watchwise.memory.store import Store
 from watchwise.memory.vectors import build_embedder
 from watchwise.nvr.client import NVRClient
 from watchwise.nvr.source import AlertSource, MQTTAlertSource
-from watchwise.pipeline import Pipeline
+from watchwise.pipeline import FaceFeed, Pipeline
 from watchwise.sinks import LogSink, MemorySink, MQTTPublisher, MQTTSink, WebhookSink
 from watchwise.tier2.gate import ScreeningGate
 from watchwise.tier2.sampling import FrameSampler
@@ -151,7 +152,10 @@ def build_system(
     start_sources: bool = True,
     telegram_api: Any = None,
     mqtt_publisher: Any = None,
+    config_path: str | Path | None = None,
 ) -> System:
+    """Compose the service. ``config_path`` is the file ``config`` came from;
+    /setup in Telegram writes the owner's answers there."""
     store = Store(config.memory.db_path)
     embedder = build_embedder(config.memory.embedding_backend, config.memory.embedding_dim)
     patterns = PatternLibrary(store, embedder, config.memory.pattern_half_life_days)
@@ -159,7 +163,7 @@ def build_system(
 
     nvr = nvr_client or NVRClient(config.nvr)
     roster = DutyRoster(config.duty_roster.path, config.duty_roster.timezone)
-    arming = ArmingState(_arming_path(config))
+    arming = ArmingState(_arming_path(config), config.arming)
 
     screening = config.screener_settings()
     vlm = build_vlm(screening)
@@ -168,20 +172,30 @@ def build_system(
         store=store,
         patterns=patterns,
         roster=roster,
-        config_cache={"vlm": vlm, "arming_path": str(_arming_path(config))},
+        config_cache={
+            "vlm": vlm,
+            "arming_path": str(_arming_path(config)),
+            "arming": arming,
+            "cameras": config.cameras,  # rooms, for cross-camera evidence (D-062)
+        },
     )
 
     gate = ScreeningGate(config.gate, patterns, store=store)
     sampler = FrameSampler(
         nvr, max_edge=screening.max_image_edge, quality=screening.jpeg_quality
     )
-    screener = Screener(gate, sampler, vlm, screening, patterns, arming=arming)
+    # The owner's /setup answers: these very objects, updated in place by it.
+    screener = Screener(
+        gate, sampler, vlm, screening, patterns, arming=arming, cameras=config.cameras, alerts=config.alerts
+    )
     policy = DecisionPolicy(config.decision)
 
     backend, backend_status = build_agent_backend(config, tool_ctx)
     logger.info("investigation backend: %s (%s)", backend.name, backend_status)
 
-    investigator = Investigator(backend, tool_ctx, store, config.agent, config.memory)
+    investigator = Investigator(
+        backend, tool_ctx, store, config.agent, config.memory, cameras=config.cameras, alerts=config.alerts
+    )
     investigations = InvestigationQueue(investigator, config.agent)
 
     warmer = None
@@ -205,10 +219,12 @@ def build_system(
         sinks.append(webhook)
         closers.append(webhook.aclose)
 
+    face_feed = FaceFeed()
     notifier = bot = None
     if notify.telegram.enabled:
         notifier, bot, api = _build_telegram(
-            config, store, nvr, feedback, patterns, investigations, memory_sink, telegram_api
+            config, store, nvr, feedback, patterns, investigations, memory_sink, telegram_api,
+            arming=arming, face_feed=face_feed, config_path=config_path,
         )
         if notifier is not None:
             sinks.append(notifier)
@@ -226,6 +242,7 @@ def build_system(
         arming=arming,
         roster=roster,
         faces=config.faces,
+        face_feed=face_feed,
     )
 
     sources: list[AlertSource] = []
@@ -235,7 +252,9 @@ def build_system(
                 alert_queue,
                 config.mqtt,
                 screen_on=config.mqtt.screen_on,
-                on_face=pipeline.note_face if config.faces.household else None,
+                # Always: /setup can add the first resident, and its
+                # recognition check listens, while the service runs.
+                on_face=pipeline.note_face,
             )
         )
 
@@ -272,6 +291,10 @@ def _build_telegram(
     investigations: InvestigationQueue,
     memory_sink: MemorySink,
     api: Any = None,
+    *,
+    arming: ArmingState | None = None,
+    face_feed: FaceFeed | None = None,
+    config_path: str | Path | None = None,
 ) -> tuple[Any, Any, Any]:
     """Notifier + bot, or (None, None, None) if no token is configured.
 
@@ -280,6 +303,7 @@ def _build_telegram(
     """
     from watchwise.notify.actions import ActionHandler
     from watchwise.notify.faces import FaceEnroller
+    from watchwise.notify.setup_chat import SetupChat
     from watchwise.notify.telegram import TelegramAPI, TelegramBot, TelegramNotifier
 
     settings = config.notify.telegram
@@ -296,7 +320,9 @@ def _build_telegram(
         logger.warning(
             "notify.telegram has no chat_ids; run `watchwise telegram link` to connect a chat"
         )
-    notifier = TelegramNotifier(api, settings, store, nvr, web_url=config.nvr.web_url)
+    notifier = TelegramNotifier(
+        api, settings, store, nvr, web_url=config.nvr.web_url, cameras=config.cameras, rooms=config.rooms
+    )
     handler = ActionHandler(
         store=store,
         feedback=feedback,
@@ -305,14 +331,22 @@ def _build_telegram(
         memory_sink=memory_sink,
         gate=config.gate,
         snooze_minutes=settings.snooze_minutes,
+        cameras=config.cameras,
     )
     enroller = FaceEnroller(nvr, config.faces)
-    return notifier, TelegramBot(api, settings, handler, notifier, enroller=enroller), api
+    setup = SetupChat(
+        config,
+        Path(config_path) if config_path else None,
+        nvr,
+        arming=arming,
+        face_feed=face_feed,
+        send_images=settings.send_images,
+    )
+    bot = TelegramBot(api, settings, handler, notifier, enroller=enroller, setup=setup, arming=arming)
+    return notifier, bot, api
 
 
-def _arming_path(config: WatchwiseConfig) -> Any:
-    from pathlib import Path
-
+def _arming_path(config: WatchwiseConfig) -> Path:
     return Path(config.memory.db_path).parent / "arming.json"
 
 
@@ -331,7 +365,12 @@ async def build_tool_context(
         store=store,
         patterns=patterns,
         roster=DutyRoster(config.duty_roster.path, config.duty_roster.timezone),
-        config_cache={"vlm": vlm, "arming_path": str(_arming_path(config))},
+        config_cache={
+            "vlm": vlm,
+            "arming_path": str(_arming_path(config)),
+            "arming": ArmingState(_arming_path(config), config.arming),
+            "cameras": config.cameras,
+        },
     )
 
     async def cleanup() -> None:

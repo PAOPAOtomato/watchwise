@@ -514,3 +514,173 @@ def test_gpu_profiles_check_learned_routines_with_the_model(catalog):
         assert gate_of(name).memory_mode == "model_checked", name
     for name in ("cpu-local", "cpu-hybrid", "cloud", "demo"):
         assert gate_of(name).memory_mode == "free", name
+
+
+# ---------------------------------------------------------------- /setup's file changes (D-060)
+
+
+from watchwise.setup.home import (  # noqa: E402
+    FileChanged,
+    HomeAnswers,
+    SetupError,
+    apply_home,
+    clean_rules,
+    plan_home,
+    restore,
+    split_names,
+)
+from watchwise.setup.render import replace_top_level_block  # noqa: E402
+
+HAND_WRITTEN = """\
+# My own notes at the top.
+profile: demo
+# Residents (I wrote this comment).
+faces:
+  household: [Ray]
+  min_unknown_attempts: 3
+
+service:
+  port: 5055  # moved off the default
+"""
+
+
+@pytest.fixture
+def generated(fixed_machine, tmp_path):
+    assert cli.main(["init", "--profile", "demo", "--root", str(tmp_path), "--yes"]) == 0
+    return tmp_path / "config" / "watchwise.yml"
+
+
+def _answers(**kw):
+    base = dict(
+        notes={"webcam": "my bedroom workspace; I sit at the desk most of the day"},
+        household=["Ray"],
+        always_alert=["anyone at the window"],
+        arming_default="armed_home",
+    )
+    base.update(kw)
+    return HomeAnswers(**base)
+
+
+def test_setup_plans_only_its_blocks_and_writes_on_apply(generated):
+    before = generated.read_text(encoding="utf-8")
+    plan = plan_home(generated, _answers())
+    assert generated.read_text(encoding="utf-8") == before, "planning writes nothing"
+    assert plan.blocks == ["cameras", "faces", "alerts", "arming"] and plan.change.action == "update"
+    assert plan.change.content.startswith(before), "every existing line stays as it was"
+    assert "The notes go into\n# the model prompts: with a cloud model, to its provider." in plan.change.content
+    assert "📷 webcam: “my bedroom workspace; I sit at the desk most of the day” (new)" in plan.lines
+    assert "👪 Residents: Ray (+ Ray)" in plan.lines
+    assert "🔒 When no arming state is set: Home (was Away)" in plan.lines
+
+    config = apply_home(plan, now=0)
+    assert plan.change.backup is not None and plan.change.backup.read_text(encoding="utf-8") == before
+    loaded = WatchwiseConfig.load(generated)
+    for cfg in (config, loaded):
+        assert cfg.cameras["webcam"].notes.startswith("my bedroom workspace")
+        assert cfg.faces.household == ["Ray"] and cfg.alerts.always == ["anyone at the window"]
+        assert cfg.arming.default == "armed_home"
+
+    again = plan_home(generated, _answers())
+    assert not again.changes_anything, "the same answers again change nothing"
+    assert apply_home(again).faces.household == ["Ray"]
+    assert len(list(generated.parent.glob("watchwise.yml.bak-*"))) == 1
+
+
+def test_setup_merges_into_hand_written_blocks(tmp_path):
+    path = tmp_path / "watchwise.yml"
+    path.write_text(HAND_WRITTEN, encoding="utf-8")
+    plan = plan_home(path, HomeAnswers(household=["Ray", "Alex"]))
+    assert plan.blocks == ["faces"], "unchanged answers leave their blocks alone"
+    text = plan.change.content
+    assert text.startswith("# My own notes at the top.\nprofile: demo\n# Residents (I wrote this comment).\nfaces:\n")
+    assert text.endswith("\nservice:\n  port: 5055  # moved off the default\n")
+    faces = yaml.safe_load(text)["faces"]
+    assert faces == {"household": ["Ray", "Alex"], "min_unknown_attempts": 3}
+    assert "👪 Residents: Ray, Alex (+ Alex)" in plan.lines
+
+    removed = plan_home(path, HomeAnswers(household=[]))
+    assert yaml.safe_load(removed.change.content)["faces"]["household"] == []
+    assert "👪 Residents: none (− Ray)" in removed.lines
+
+
+def test_setup_writes_nothing_if_the_file_changed_after_the_plan(generated):
+    plan = plan_home(generated, _answers())
+    edited = generated.read_text(encoding="utf-8") + "# edited by hand meanwhile\n"
+    generated.write_text(edited, encoding="utf-8")
+    with pytest.raises(FileChanged):
+        apply_home(plan)
+    assert generated.read_text(encoding="utf-8") == edited
+    assert not list(generated.parent.glob("watchwise.yml.bak-*"))
+
+
+def test_setup_undo_restores_the_file_unless_it_changed_since(generated):
+    before = generated.read_text(encoding="utf-8")
+    plan = plan_home(generated, _answers())
+    apply_home(plan, now=0)
+    change, config = restore(generated, plan.change.backup, plan.change.content, now=0)
+    assert generated.read_text(encoding="utf-8") == before and config.cameras == {}
+    assert change.backup is not None and change.backup.read_text(encoding="utf-8") == plan.change.content
+    assert change.backup != plan.change.backup, "a backup made in the same second keeps the first"
+
+    plan = plan_home(generated, _answers())
+    apply_home(plan)
+    generated.write_text(plan.change.content + "# later\n", encoding="utf-8")
+    with pytest.raises(FileChanged, match="changed after /setup saved it"):
+        restore(generated, plan.change.backup, plan.change.content)
+    assert generated.read_text(encoding="utf-8").endswith("# later\n")
+
+
+def test_setup_needs_a_valid_config_file(tmp_path):
+    with pytest.raises(SetupError, match="without a config file"):
+        plan_home(None, HomeAnswers())
+    bad = tmp_path / "bad.yml"
+    bad.write_text("roles:\n  screener: missing\n", encoding="utf-8")
+    with pytest.raises(SetupError, match="isn't a valid config"):
+        plan_home(bad, HomeAnswers(household=["Ray"]))
+    assert bad.read_text(encoding="utf-8") == "roles:\n  screener: missing\n"
+
+
+def test_init_keeps_what_the_owner_set_by_command_or_chat(generated, capsys):
+    text = replace_top_level_block(
+        generated.read_text(encoding="utf-8"), "notify", {"telegram": {"enabled": True, "chat_ids": [555]}}
+    )
+    generated.write_text(text, encoding="utf-8")
+    apply_home(plan_home(generated, _answers()))
+    kept = generated.read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["init", "--profile", "demo", "--root", str(generated.parents[1]), "--yes"]) == 0
+    assert "Nothing to change." in capsys.readouterr().out
+    assert generated.read_text(encoding="utf-8") == kept
+    loaded = WatchwiseConfig.load(generated)
+    assert loaded.notify.telegram.chat_ids == [555] and loaded.faces.household == ["Ray"]
+
+
+def test_a_one_line_block_is_replaced_not_duplicated():
+    out = replace_top_level_block("faces: {household: [Ray]}\nservice:\n  port: 1\n", "faces", {"household": ["Alex"]})
+    assert out == "faces:\n  household:\n  - Alex\nservice:\n  port: 1\n"
+
+
+def test_setup_cleans_what_the_owner_types():
+    assert split_names("Ray, alex;Mary Ann\nray") == (["Ray", "alex"], ["Mary Ann"])
+    assert clean_rules(["- anyone at the window", "", "• Anyone at the window", "a ladder  "]) == [
+        "anyone at the window",
+        "a ladder",
+    ]
+
+
+def test_setup_writes_each_cameras_room(generated):
+    """D-062: rooms live next to the notes in each camera's block."""
+    answers = HomeAnswers(notes={"webcam": "the desk"}, rooms={"webcam": "Bedroom", "laptopcam": " bedroom "})
+    plan = plan_home(generated, answers)
+    assert yaml.safe_load(plan.change.content)["cameras"] == {
+        "webcam": {"notes": "the desk", "room": "Bedroom"},
+        "laptopcam": {"room": "bedroom"},
+    }
+    assert "📷 webcam · room Bedroom: “the desk” (new)" in plan.lines
+    assert "📷 laptopcam · room bedroom: no notes (new)" in plan.lines
+    config = apply_home(plan)
+    assert config.cameras["laptopcam"].room == "bedroom"
+
+    moved = plan_home(generated, HomeAnswers(notes={"webcam": "the desk"}, rooms={"webcam": "Bedroom"}))
+    assert yaml.safe_load(moved.change.content)["cameras"] == {"webcam": {"notes": "the desk", "room": "Bedroom"}}
+    assert "📷 laptopcam: no notes (− room bedroom)" in moved.lines

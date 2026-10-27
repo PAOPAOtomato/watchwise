@@ -468,3 +468,41 @@ async def test_sdk_mcp_tool_handler_returns_mcp_content(tool_ctx):
     assert out["isError"] is False
     assert out["content"][0]["type"] == "text"
     assert json.loads(out["content"][0]["text"])["ok"] is True
+
+
+async def test_arming_assumes_the_owners_default_until_a_state_is_set(tool_ctx, tmp_path):
+    """D-060: /setup sets arming.default; without it, armed_away (session 10)."""
+    from watchwise.config import ArmingSettings
+
+    assert ArmingState(tmp_path / "none.json").get()["state"] == "armed_away"
+    settings = ArmingSettings(default="armed_home")
+    arming = ArmingState(tmp_path / "a.json", settings)
+    assert arming.get() == {"state": "armed_home", "since": None, "source": "default"}
+    settings.default = "disarmed"  # /setup changes it in place
+    tool_ctx.config_cache["arming"] = arming
+    assert (await DEVICE_TOOL.run(tool_ctx, {}))["arming"]["state"] == "disarmed"
+    arming.set("armed_night", source="telegram:tester")
+    assert arming.get()["state"] == "armed_night"
+    (tmp_path / "a.json").write_text("{broken", encoding="utf-8")
+    assert arming.get()["state"] == "armed_away", "an unreadable file assumes the worst"
+
+
+async def test_cross_reference_reads_a_camera_in_the_same_room_as_another_angle(tool_ctx, nvr_state):
+    """D-062: the second camera in a room always sees the same thing; that
+    is not someone moving through the property."""
+    from watchwise.config import CameraSettings
+
+    tool_ctx.config_cache["cameras"] = {
+        "cam_drive": CameraSettings(room="Front"),
+        "cam_door": CameraSettings(room="front "),
+    }
+    t0 = time.time()
+    nvr_state.add_event(event_id="e1", camera="cam_door", start_time=t0 + 2)
+    result = await CROSS_TOOL.run(tool_ctx, {"start_time": t0, "exclude_camera": "cam_drive"})
+    assert result["event_count"] == 0 and result["cameras_with_activity"] == {}
+    assert result["same_room_activity"] == {"cam_door": 1} and result["timeline"][0]["same_room"]
+    assert "cam_door watches the same room as cam_drive from another angle" in result["interpretation"]
+
+    nvr_state.add_event(event_id="e2", camera="cam_yard", start_time=t0 + 40)
+    result = await CROSS_TOOL.run(tool_ctx, {"start_time": t0, "exclude_camera": "cam_drive"})
+    assert result["event_count"] == 1 and list(result["cameras_with_activity"]) == ["cam_yard"]

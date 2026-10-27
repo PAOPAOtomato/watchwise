@@ -241,7 +241,7 @@ class TelegramSettings(BaseModel):
     # Which dispositions produce a card.
     notify_on: list[NotifyOn] = Field(default_factory=lambda: ["alerted", "escalated_human"])
     snooze_minutes: int = 60
-    # After 🚨 Real, ask "What was wrong?"; the reply teaches what to look for.
+    # After 🚨 Alert me, ask "What was wrong?"; the reply teaches what to look for.
     ask_why_on_real: bool = True
     # Pause between messages to one chat (Telegram asks for <= 1/s per chat).
     min_interval_s: float = 1.0
@@ -279,6 +279,60 @@ class FaceSettings(BaseModel):
     min_unknown_attempts: int = Field(default=2, ge=1)
 
 
+class CameraSettings(BaseModel):
+    """What the owner said about one camera (``/setup`` in Telegram, D-060).
+
+    The notes go into the model prompts (screening, the event summary and
+    investigations): with a cloud model, to its provider.
+    """
+
+    notes: str = ""
+    # The room it watches (D-062). Cameras in one room share one card per
+    # incident, a tap on it teaches all of them, and an investigation reads
+    # them as one view of the room, not as movement. Empty: its own room.
+    room: str = ""
+
+
+class RoomSettings(BaseModel):
+    # Two cameras' events in one room are one incident (one card) when they
+    # overlap in time, or one starts within this many seconds of the other's end.
+    merge_window_s: float = Field(default=30.0, ge=0.0)
+
+
+def room_key(cameras: dict[str, CameraSettings], camera: str) -> str:
+    """Which room a camera watches, for comparing: its room (any spelling),
+    or the camera itself when it has none."""
+    spec = cameras.get(camera)
+    room = " ".join(spec.room.split()).lower() if spec is not None else ""
+    return room or f"camera:{camera}"
+
+
+def same_room(cameras: dict[str, CameraSettings], camera: str) -> list[str]:
+    """The other cameras known to watch the same room as ``camera``."""
+    key = room_key(cameras, camera)
+    return [name for name in cameras if name != camera and room_key(cameras, name) == key]
+
+
+class AlertRules(BaseModel):
+    """What the owner always wants an alert for, in their own words (D-060).
+
+    The vision model checks every event against them; a match alerts at once,
+    like an event the owner marked real. They can only raise an event, never
+    lower one, and go to the model like the camera notes.
+    """
+
+    always: list[str] = Field(default_factory=list)
+
+
+ArmingStateName = Literal["armed_away", "armed_night", "armed_home", "disarmed"]
+
+
+class ArmingSettings(BaseModel):
+    # Assumed while no arming state has been set (``/arm`` in Telegram or
+    # POST /arming, kept in arming.json next to the database).
+    default: ArmingStateName = "armed_away"
+
+
 class DutyRosterSettings(BaseModel):
     """Rule base: who/what is expected where and when."""
 
@@ -310,6 +364,11 @@ class WatchwiseConfig(BaseModel):
     notify: NotifySettings = Field(default_factory=NotifySettings)
     duty_roster: DutyRosterSettings = Field(default_factory=DutyRosterSettings)
     faces: FaceSettings = Field(default_factory=FaceSettings)
+    # Camera name (as in the NVR) -> what the owner said about it.
+    cameras: dict[str, CameraSettings] = Field(default_factory=dict)
+    rooms: RoomSettings = Field(default_factory=RoomSettings)
+    alerts: AlertRules = Field(default_factory=AlertRules)
+    arming: ArmingSettings = Field(default_factory=ArmingSettings)
     service: ServiceSettings = Field(default_factory=ServiceSettings)
 
     @model_validator(mode="after")

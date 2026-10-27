@@ -910,3 +910,21 @@ async def test_without_a_household_list_faces_change_nothing(system):
     system.pipeline.note_face({"type": "face", "id": "none-1-obj", "name": None})
     ended = await system.pipeline.handle(_faced("end", "none-1", ts=DAY_TS + 730_000))
     assert ended.stage is not Stage.FACE
+
+
+async def test_face_results_reach_whoever_listens(system):
+    """D-060: the /setup recognition check listens to every attempt, and to a
+    resident being named (once per review)."""
+    from watchwise.pipeline import FaceSeen
+
+    system.config.faces.household = ["Rui"]
+    system.arming.set("armed_home")
+    seen: list[FaceSeen] = []
+    stop = system.pipeline.face_feed.subscribe(seen.append)
+    system.pipeline.note_face({"type": "face", "id": "feed-1-obj", "name": "Rui", "score": 0.93, "camera": "cam_door"})
+    kwargs = dict(ts=DAY_TS + 740_000)
+    await system.pipeline.handle(_faced("update", "feed-1", sub_labels=["rui"], **kwargs))
+    await system.pipeline.handle(_faced("end", "feed-1", sub_labels=["rui"], **kwargs))
+    stop()
+    system.pipeline.note_face({"type": "face", "id": "feed-2-obj", "name": None, "camera": "cam_door"})
+    assert seen == [FaceSeen("cam_door", "Rui", 0.93), FaceSeen("cam_door", "Rui", confirmed=True)]

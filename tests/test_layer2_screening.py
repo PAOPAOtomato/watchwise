@@ -421,7 +421,8 @@ def test_the_summary_is_shown_what_the_owner_marked_real():
     prompt = prompts.build_summary_prompt(make_alert(labels=["person"]), 4,
                                           owner_real=["waving both arms at the camera"])
     assert '- "waving both arms at the camera"' in prompt
-    assert "potential_threat_level at least 1" in prompt
+    # B-026: the key the reply is parsed with (parse_summary_reply), not Frigate's.
+    assert "rate threat_level at least 1" in prompt and "potential_threat_level" not in prompt
 
 
 async def test_the_screener_summarizes_the_whole_event(nvr_client, patterns):
@@ -497,3 +498,51 @@ async def test_a_match_to_what_the_owner_marked_real_is_never_benign(nvr_client,
         assert (await screener.screen_frames(alert)).verdict is expected
     assert 'marked real: "waving both arms at the camera"' in prompts_seen[-1]
     assert 'add the tag "owner_real"' in prompts_seen[-1]
+
+
+# ---------------- what the owner said in /setup (D-060) ----------------
+
+
+def test_the_prompts_carry_the_camera_notes_and_the_always_alert_rules():
+    alert = make_alert(camera="webcam", labels=["person"])
+    plain = prompts.build_prompt(alert, 2)
+    assert "the owner" not in plain.lower()
+    screen = prompts.build_prompt(alert, 2, camera_notes="my bedroom workspace",
+                                  always_alert=["anyone at the window"])
+    assert "About this camera, from the owner: my bedroom workspace" in screen
+    assert 'The owner always wants an alert for:\n- "anyone at the window"' in screen
+    assert 'answer "suspicious" and add the tag "owner_real"' in screen
+    summary = prompts.build_summary_prompt(alert, 4, camera_notes="my bedroom workspace",
+                                           always_alert=["anyone at the window"])
+    assert "About this camera, from the owner: my bedroom workspace" in summary
+    assert '- "anyone at the window"' in summary and "rate threat_level at least 1" in summary
+
+
+async def test_the_screener_reads_what_setup_changes_while_it_runs(nvr_client, patterns):
+    """/setup updates the service's config objects in place; the next screen
+    uses them, with no restart."""
+    from watchwise.config import AlertRules, CameraSettings
+
+    seen: list[str] = []
+
+    class Recording(VLMBackend):
+        name = "recording"
+
+        async def infer(self, frames, prompt, system):
+            seen.append(prompt)
+            return '{"verdict": "benign", "confidence": 0.95, "reason": "someone at the window", "tags": ["owner_real"]}'
+
+    cameras: dict[str, CameraSettings] = {}
+    alerts = AlertRules()
+    screener = Screener(ScreeningGate(GateSettings(), patterns), FrameSampler(nvr_client), Recording("m"),
+                        VLMSettings(frames=1), cameras=cameras, alerts=alerts)
+    alert = make_alert(camera="cam_drive")
+    await screener.screen_frames(alert)
+    assert "owner" not in seen[0]
+
+    cameras["cam_drive"] = CameraSettings(notes="the driveway; the bins go out on Tuesdays")
+    alerts.always = ["anyone at the window"]
+    result = await screener.screen_frames(alert)
+    assert "About this camera, from the owner: the driveway" in seen[1]
+    assert '- "anyone at the window"' in seen[1]
+    assert result.verdict is Verdict.SUSPICIOUS, "a rule the owner set can only raise"

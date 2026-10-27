@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from watchwise.config import GateSettings
+from watchwise.config import CameraSettings, GateSettings, room_key
 from watchwise.memory.feedback import FeedbackLoop
 from watchwise.memory.long_term import PatternLibrary
 from watchwise.memory.store import Store
@@ -35,7 +35,7 @@ from watchwise.timeutil import safe_strftime
 
 INVESTIGATING_FOOTER = "🔎 Investigating at your request; this message will update."
 ASK_WHY = (
-    "🚨 Noted as real. <b>What was wrong?</b> Reply in a few words, e.g. "
+    "🚨 Noted: you want alerts like this. <b>What was wrong?</b> Reply in a few words, e.g. "
     "“waving both arms at the camera”, and I'll look for it next time. (Optional.)"
 )
 NOTE_LIMIT = 200
@@ -47,7 +47,8 @@ class ActionOutcome:
     footer: str | None = None  # None: leave the card's footer as it is
     keyboard: str | None = None  # None: leave the card's keyboard as it is
     reply: str | None = None  # an extra message (Telegram HTML)
-    ask_note: int | None = None  # a correction the owner may describe in their own words
+    # Corrections the owner may describe in their own words (one per camera of a room card).
+    ask_note: list[int] | None = None
 
 
 class ActionHandler:
@@ -62,6 +63,7 @@ class ActionHandler:
         gate: GateSettings,
         snooze_minutes: int = 60,
         clock: Callable[[], float] = time.time,
+        cameras: dict[str, CameraSettings] | None = None,
     ):
         self.store = store
         self.feedback = feedback
@@ -71,56 +73,79 @@ class ActionHandler:
         self.gate = gate
         self.snooze_minutes = snooze_minutes
         self.clock = clock
+        # Which room each camera watches (D-062); Snooze mutes the whole room.
+        self.cameras = cameras if cameras is not None else {}
 
     async def handle(
-        self, action: str, review_id: str, *, arg: str | None = None, reviewer: str = "telegram"
+        self,
+        action: str,
+        review_id: str,
+        *,
+        arg: str | None = None,
+        reviewer: str = "telegram",
+        group: list[str] | None = None,
     ) -> ActionOutcome:
+        """A button on the card of ``review_id``. ``group``: every event the
+        card shows (a room card, D-062), the card's own first."""
         row = self.store.get_alert(review_id)
         if row is None:
             return ActionOutcome("This alert is no longer known.")
+        others = [r for r in (self.store.get_alert(g) for g in (group or [])[1:]) if r is not None]
         if action in ("ok", "real"):
-            return self._feedback(row, "benign" if action == "ok" else "suspicious", reviewer)
+            return self._feedback(row, "benign" if action == "ok" else "suspicious", reviewer, others)
         if action == "undo":
             return self._undo(row, arg)
         if action == "look":
             return self._look(row)
         if action == "snooze":
-            return self._snooze(row)
+            return self._snooze(row, others)
         if action == "why":
-            return ActionOutcome("Explanation below.", reply=self.explain(row))
+            text = "\n\n".join(self.explain(r) for r in [row, *others])
+            return ActionOutcome("Explanation below.", reply=text[:TEXT_LIMIT])
         return ActionOutcome("Unknown action.")
 
     # ---------------- teaching ----------------
 
-    def _feedback(self, row: Any, verdict: str, reviewer: str) -> ActionOutcome:
-        latest = self.memory_sink.latest(row["review_id"])
-        result = self.feedback.submit(
-            row["review_id"],
-            verdict,
-            reviewer=reviewer,
-            influenced_pattern_ids=list(latest.matched_memory_ids) if latest else [],
-        )
-        toast = "Thanks, noted as expected." if verdict == "benign" else "Thanks, noted as real."
+    def _feedback(self, row: Any, verdict: str, reviewer: str, others: list[Any] | None = None) -> ActionOutcome:
+        """One correction per event on the card, so every camera in the room
+        learns from the tap (D-062)."""
+        results = []
+        others = others or []
+        for alert in [row, *others]:
+            latest = self.memory_sink.latest(alert["review_id"])
+            results.append(self.feedback.submit(
+                alert["review_id"],
+                verdict,
+                reviewer=reviewer,
+                influenced_pattern_ids=list(latest.matched_memory_ids) if latest else [],
+            ))
+        result, ids = results[0], [r.correction_id for r in results]
+        toast = "Thanks, noted as expected." if verdict == "benign" else "Noted: you want alerts like this."
+        footer = self._learned(row, result.human_verdict, result.pattern_id)
+        if others:
+            footer += f" Also recorded for {', '.join(dict.fromkeys(o['camera'] for o in others))}."
         return ActionOutcome(
             toast,
-            footer=self._learned(row, result.human_verdict, result.pattern_id),
-            keyboard=f"after_feedback:{result.correction_id}",
-            ask_note=result.correction_id if verdict == "suspicious" else None,
+            footer=footer,
+            keyboard=f"after_feedback:{','.join(map(str, ids))}",
+            ask_note=ids if verdict == "suspicious" else None,
         )
 
-    def remember_note_request(self, chat_id: int | str, message_id: int, correction_id: int) -> None:
-        self.store.add_note_request(chat_id, message_id, correction_id)
+    def remember_note_request(self, chat_id: int | str, message_id: int, correction_ids: list[int]) -> None:
+        self.store.add_note_request(chat_id, message_id, correction_ids)
 
     def note_from_reply(self, chat_id: int | str, replied_to: int, text: str) -> str | None:
-        """A reply to a "What was wrong?" question: keep it as that
-        correction's note (D-053). None when the reply was to something else."""
-        correction_id = self.store.note_request(chat_id, replied_to)
-        if correction_id is None:
+        """A reply to a "What was wrong?" question: keep it as the note of
+        the corrections it asked about (D-053). None when the reply was to
+        something else."""
+        correction_ids = self.store.note_request(chat_id, replied_to)
+        if not correction_ids:
             return None
         note = " ".join(text.split())[:NOTE_LIMIT]
         if not note:
             return "That reply was empty, so nothing changed."
-        if not self.store.set_correction_note(correction_id, note):
+        kept = [self.store.set_correction_note(c, note) for c in correction_ids]
+        if not any(kept):
             return "That answer was undone, so there's nothing to attach this to."
         return f"✍️ Thanks. Next time I'll look for: “{html.escape(note, quote=False)}”."
 
@@ -128,7 +153,7 @@ class ActionHandler:
         labels = ", ".join(json.loads(row["labels"] or "[]")) or "activity"
         what = f"{labels} on {row['camera']}"
         if verdict != "benign":
-            return f"🚨 Marked real. Watchwise will keep alerting on {what} like this."
+            return f"🚨 You asked for alerts like this. Watchwise will keep alerting on {what} like this."
         pattern = self.patterns.get(pattern_id) if pattern_id else None
         count = int(pattern["corrections"]) if pattern else 1
         needed = self.gate.memory_min_corrections
@@ -143,9 +168,16 @@ class ActionHandler:
         )
 
     def _undo(self, row: Any, arg: str | None) -> ActionOutcome:
-        try:
-            self.feedback.undo(int(arg or ""))
-        except (KeyError, ValueError):
+        """``arg``: the corrections of one tap, comma-separated (a room card
+        made one per camera)."""
+        undone = 0
+        for part in (arg or "").split(","):
+            try:
+                self.feedback.undo(int(part))
+                undone += 1
+            except (KeyError, ValueError):
+                continue
+        if not undone:
             return ActionOutcome("Nothing to undo.")
         decision = decision_from_row(row)
         keyboard = keyboard_for(decision) if decision is not None else "full"
@@ -167,14 +199,22 @@ class ActionHandler:
             return ActionOutcome("Investigating…", footer=INVESTIGATING_FOOTER)
         return ActionOutcome("The investigation queue is full; try again shortly.")
 
-    def _snooze(self, row: Any) -> ActionOutcome:
+    def _snooze(self, row: Any, others: list[Any] | None = None) -> ActionOutcome:
+        """Mute the card's camera, and every other camera in its room."""
         until = self.clock() + self.snooze_minutes * 60
-        self.store.set_snooze(row["camera"], until)
+        key = room_key(self.cameras, row["camera"])
+        cameras = [row["camera"], *(o["camera"] for o in others or [])]
+        cameras += [name for name in self.cameras if room_key(self.cameras, name) == key]
+        cameras = list(dict.fromkeys(cameras))
+        for camera in cameras:
+            self.store.set_snooze(camera, until)
+        what = ", ".join(cameras)
+        its = "Their" if len(cameras) > 1 else "Its"
         return ActionOutcome(
-            f"{row['camera']} muted for {self.snooze_minutes} min.",
+            f"{what} muted for {self.snooze_minutes} min.",
             footer=(
-                f"🔇 {row['camera']} muted until {safe_strftime(until, '%H:%M')}. "
-                "Its alerts are still processed and recorded."
+                f"🔇 {what} muted until {safe_strftime(until, '%H:%M')}. "
+                f"{its} alerts are still processed and recorded."
             ),
         )
 

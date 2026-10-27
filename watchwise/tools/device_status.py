@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from watchwise.config import ArmingSettings
 from watchwise.tools.base import ForensicTool, ToolContext, obj_schema
 
 
@@ -29,15 +30,19 @@ class ArmingState:
 
     VALID = ("armed_away", "armed_night", "armed_home", "disarmed")
 
-    def __init__(self, path: str | Path = "./data/arming.json"):
+    def __init__(self, path: str | Path = "./data/arming.json", settings: ArmingSettings | None = None):
         self.path = Path(path)
+        # The state assumed until one is set (arming.default); read on each
+        # call, so a /setup change applies at once.
+        self.settings = settings if settings is not None else ArmingSettings()
 
     def get(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"state": "armed_away", "since": None, "source": "default"}
+            return {"state": self.settings.default, "since": None, "source": "default"}
         try:
             return json.loads(self.path.read_text(encoding="utf-8"))
         except (ValueError, OSError):
+            # A broken file says nothing about who is home: assume the worst.
             return {"state": "armed_away", "since": None, "source": "unreadable"}
 
     def set(self, state: str, source: str = "api") -> dict[str, Any]:
@@ -105,7 +110,10 @@ async def _get_device_status(ctx: ToolContext, args: dict[str, Any]) -> dict[str
 
     arming = ctx.config_cache.get("arming_state")
     if arming is None:
-        arming = ArmingState(ctx.config_cache.get("arming_path", "./data/arming.json")).get()
+        live = ctx.config_cache.get("arming")  # the service's ArmingState, with its default
+        if live is None:
+            live = ArmingState(ctx.config_cache.get("arming_path", "./data/arming.json"))
+        arming = live.get()
 
     unhealthy = [n for n, h in camera_health.items() if not h["healthy"]]
 

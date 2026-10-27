@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 
 from watchwise.timeutil import safe_hour, safe_strftime
-from watchwise.types import AlertContext
+from watchwise.types import OWNER_REAL_TAG, AlertContext
 
 SYSTEM = """You are the fast screening stage of a video surveillance pipeline.
 You look at a few frames from one motion event and decide whether it needs a \
@@ -52,8 +52,26 @@ ARMING_NOTES = {
 }
 
 
+def owner_lines(camera_notes: str = "", always_alert: list[str] | tuple[str, ...] = ()) -> list[str]:
+    """What the owner said in /setup (D-060): what this camera looks at, and
+    what they always want an alert for."""
+    lines: list[str] = []
+    if camera_notes:
+        lines += ["", f"About this camera, from the owner: {camera_notes}"]
+    if always_alert:
+        lines += ["", "The owner always wants an alert for:"]
+        lines += [f'- "{rule}"' for rule in always_alert]
+    return lines
+
+
 def build_prompt(
-    ctx: AlertContext, frame_count: int, extra_context: str = "", *, arming: str | None = None
+    ctx: AlertContext,
+    frame_count: int,
+    extra_context: str = "",
+    *,
+    arming: str | None = None,
+    camera_notes: str = "",
+    always_alert: list[str] | tuple[str, ...] = (),
 ) -> str:
     """Volatile, per-alert half of the prompt.
 
@@ -77,6 +95,12 @@ def build_prompt(
     ]
     if arming in ARMING_NOTES:
         lines += ["", f"Household: {ARMING_NOTES[arming]}"]
+    lines += owner_lines(camera_notes, always_alert)
+    if always_alert:
+        lines.append(
+            'If this event shows one of these, answer "suspicious" and add the tag '
+            f'"{OWNER_REAL_TAG}", even if it looks harmless.'
+        )
     if extra_context:
         lines += ["", "Additional context:", extra_context]
     lines += ["", "Respond with the JSON object only."]
@@ -103,6 +127,8 @@ def build_summary_prompt(
     arming: str | None = None,
     concerns: list[str] | tuple[str, ...] = (),
     owner_real: list[str] | tuple[str, ...] = (),
+    camera_notes: str = "",
+    always_alert: list[str] | tuple[str, ...] = (),
 ) -> str:
     """The per-event half of the whole-event summary question."""
     metadata = {
@@ -120,6 +146,11 @@ def build_summary_prompt(
     ]
     if arming in ARMING_NOTES:
         lines += ["", f"Household: {ARMING_NOTES[arming]}"]
+    lines += owner_lines(camera_notes, always_alert)
+    if always_alert:
+        lines.append(
+            "If this event shows one of these, say so under concerns and rate threat_level at least 1."
+        )
     if concerns:
         lines += ["", "Also watch for, and list under concerns if seen:"]
         lines += [f"- {c}" for c in concerns]
@@ -128,7 +159,7 @@ def build_summary_prompt(
         lines += [f'- "{t}"' for t in owner_real]
         lines.append(
             "If this event shows the same kind of thing, say so under concerns and rate "
-            "potential_threat_level at least 1."
+            "threat_level at least 1."
         )
     lines += ["", "Respond with the JSON object only."]
     return "\n".join(lines)

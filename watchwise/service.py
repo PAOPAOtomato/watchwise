@@ -15,6 +15,7 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException, Query
@@ -60,12 +61,15 @@ def create_app(
     *,
     nvr_client: NVRClient | None = None,
     start_sources: bool = True,
+    config_path: str | Path | None = None,
 ) -> FastAPI:
     cfg = config or WatchwiseConfig.load()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        system = build_system(cfg, nvr_client=nvr_client, start_sources=start_sources)
+        system = build_system(
+            cfg, nvr_client=nvr_client, start_sources=start_sources, config_path=config_path
+        )
         app.state.system = system
         app.state.started_at = time.time()
         await system.start()

@@ -187,6 +187,16 @@ class NVRClient:
 
     # ---------------- faces ----------------
 
+    async def faces(self) -> dict[str, int]:
+        """The NVR's Face Library: name -> number of photos. Frigate's
+        ``train`` folder (its recent recognition attempts) is not a person."""
+        library = await self._get_json("/faces")
+        return {
+            str(name): len(files or [])
+            for name, files in (library or {}).items()
+            if name != "train" and isinstance(files, list)
+        }
+
     async def register_face(self, name: str, image: bytes) -> dict[str, Any]:
         """Add a face to the NVR's Face Library from a whole image; the NVR
         finds the face in it. Returns its answer: {"success", "message"}."""

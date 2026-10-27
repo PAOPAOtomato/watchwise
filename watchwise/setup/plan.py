@@ -63,6 +63,10 @@ def apply(changes: list[FileChange], *, now: float | None = None) -> list[FileCh
         change.path.parent.mkdir(parents=True, exist_ok=True)
         if change.action == "update" and change.path.exists():
             backup = change.path.with_name(f"{change.path.name}.bak-{stamp}")
+            n = 1
+            while backup.exists():  # two writes in one second keep both backups
+                backup = change.path.with_name(f"{change.path.name}.bak-{stamp}-{n}")
+                n += 1
             shutil.copy2(change.path, backup)
             change.backup = backup
         tmp = change.path.with_name(f".{change.path.name}.tmp")

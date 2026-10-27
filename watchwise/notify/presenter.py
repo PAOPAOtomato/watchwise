@@ -53,7 +53,7 @@ class Button:
     action: str
 
 
-OK, REAL = Button("✅ Expected", "ok"), Button("🚨 Real", "real")
+OK, REAL = Button("✅ Expected", "ok"), Button("🚨 Alert me", "real")
 LOOK, SNOOZE, WHY = Button("🔍 Look closer", "look"), Button("🔇 Snooze", "snooze"), Button("❓ Why", "why")
 UNDO = Button("↩️ Undo", "undo")
 CLIP_LABEL = "▶️ Clip"
@@ -119,6 +119,39 @@ def build_card(ctx: AlertContext, decision: Decision) -> AlertCard:
         lines=lines,
         keyboard=keyboard_for(decision),
     )
+
+
+# How much a verdict asks of the owner; a room card shows the most (D-062).
+SERIOUSNESS = {
+    Disposition.ALERTED: 2,
+    Disposition.ESCALATED_HUMAN: 2,
+    Disposition.DOWNGRADED: 1,
+    Disposition.SUPPRESSED: 0,
+}
+
+
+def build_room_card(
+    room: str, lead: tuple[AlertContext, Decision], others: list[tuple[AlertContext, Decision]]
+) -> AlertCard:
+    """One card for an incident that several cameras in one room saw. The
+    most serious verdict leads (the card's own on a tie), so the card never
+    shows less than any camera found; each other camera gets a line. The
+    buttons stay the card's own event's, and act on all of them."""
+    entries = [lead, *others]
+    top_ctx, top = max(entries, key=lambda e: SERIOUSNESS.get(e[1].disposition, 0))
+    card = build_card(top_ctx, top)
+    card.review_id, card.camera = lead[0].review_id, lead[0].camera
+    card.keyboard = keyboard_for(lead[1])  # Look closer investigates the card's own event
+    subject = ", ".join(dict.fromkeys(label.capitalize() for c, _ in entries for label in c.labels)) or "Motion"
+    cameras = " + ".join(dict.fromkeys(c.camera for c, _ in entries))
+    when = safe_strftime(min(c.start_time for c, _ in entries), "%H:%M")
+    card.title = f"{ICONS.get(top.disposition, '•')} {subject} · {room} ({cameras}) · {when}"
+    for ctx, decision in entries:
+        if ctx.review_id == top_ctx.review_id:
+            continue
+        what = "analyzing…" if _analyzing(decision) else plain_reason(decision)
+        card.lines.append(f"Also {ctx.camera}: {ICONS.get(decision.disposition, '•')} {what}")
+    return card
 
 
 def being_investigated(decision: Decision) -> bool:

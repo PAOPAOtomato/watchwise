@@ -67,6 +67,38 @@ REMEMBERED_REVIEWS = 2048
 REMEMBERED_FACES = 4096
 
 
+@dataclass(frozen=True)
+class FaceSeen:
+    """One face result from the NVR: an attempt (the best match so far over
+    that person's attempts, or None) or a confirmed recognition of a
+    household member (the review's sub-label, which holds an event back)."""
+
+    camera: str
+    name: str | None
+    score: float = 0.0
+    confirmed: bool = False
+
+
+class FaceFeed:
+    """Hands the NVR's face results to whoever listens (the /setup
+    recognition check). Listeners run on the event loop and must not block."""
+
+    def __init__(self) -> None:
+        self._listeners: list[Callable[[FaceSeen], None]] = []
+
+    def subscribe(self, listener: Callable[[FaceSeen], None]) -> Callable[[], None]:
+        """Start listening; call the returned function to stop."""
+        self._listeners.append(listener)
+        return lambda: self._listeners.remove(listener) if listener in self._listeners else None
+
+    def publish(self, seen: FaceSeen) -> None:
+        for listener in list(self._listeners):
+            try:
+                listener(seen)
+            except Exception:
+                logger.exception("a face listener failed")
+
+
 @dataclass
 class _Handled:
     # Labels and "zone:<name>" entries the review was last decided on.
@@ -87,6 +119,7 @@ class Pipeline:
         arming: Any = None,
         roster: Any = None,
         faces: FaceSettings | None = None,
+        face_feed: FaceFeed | None = None,
     ):
         self.alert_queue = alert_queue
         self.screener = screener
@@ -100,6 +133,7 @@ class Pipeline:
         self.roster = roster
         # Who lives here, as the NVR's face recognition names them (D-057).
         self.faces = faces if faces is not None else FaceSettings()
+        self.face_feed = face_feed if face_feed is not None else FaceFeed()
         # event id -> (attempts, best match so far or None, its score).
         self._faces: OrderedDict[str, tuple[int, str | None, float]] = OrderedDict()
         # review_id -> household names the NVR recognized in it.
@@ -233,10 +267,12 @@ class Pipeline:
             return
         attempts = self._faces.get(event_id, (0, None, 0.0))[0] + 1
         name = update.get("name") or None
-        self._faces[event_id] = (attempts, str(name) if name else None, float(update.get("score") or 0.0))
+        score = float(update.get("score") or 0.0)
+        self._faces[event_id] = (attempts, str(name) if name else None, score)
         self._faces.move_to_end(event_id)
         while len(self._faces) > REMEMBERED_FACES:
             self._faces.popitem(last=False)
+        self.face_feed.publish(FaceSeen(str(update.get("camera") or ""), str(name) if name else None, score))
 
     def _note_recognized(self, ctx: AlertContext) -> None:
         """The NVR names a person once it is sure (a sub-label on the review)."""
@@ -244,6 +280,10 @@ class Pipeline:
         names = [household[s.lower()] for s in ctx.sub_labels if s.lower() in household]
         if not names:
             return
+        known = self._recognized.get(ctx.review_id, [])
+        for name in dict.fromkeys(names):
+            if name not in known:
+                self.face_feed.publish(FaceSeen(ctx.camera, name, confirmed=True))
         self._recognized[ctx.review_id] = list(dict.fromkeys(names))
         self._recognized.move_to_end(ctx.review_id)
         while len(self._recognized) > REMEMBERED_REVIEWS:
