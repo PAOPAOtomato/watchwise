@@ -175,7 +175,9 @@ rooms:
   max_incident_s: 300
 # What should always alert, even at home. The vision model checks every event
 # for these (sent to its provider, with a cloud model); a match alerts at once
-# and can only raise an event, never lower one.
+# and can only raise an event, never lower one. A resident Frigate recognizes
+# at home is held back before these are checked, unless the rule says "anyone"
+# or "any person": then it is asked about them too, once, when the event ends.
 alerts:
   always: [] # e.g. ["anyone at the window"]
 # Assumed while no arming state is set (/arm in Telegram, or POST /arming).

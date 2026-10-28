@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 
 from watchwise.timeutil import safe_hour, safe_strftime
-from watchwise.types import OWNER_REAL_TAG, OWNER_WATCH_TAG, AlertContext
+from watchwise.types import OWNER_REAL_TAG, AlertContext
 
 SYSTEM = """You are the fast screening stage of a video surveillance pipeline.
 You look at a few frames from one motion event and decide whether it needs a \
@@ -72,7 +72,6 @@ def build_prompt(
     arming: str | None = None,
     camera_notes: str = "",
     always_alert: list[str] | tuple[str, ...] = (),
-    watches: list[str] | tuple[str, ...] = (),
 ) -> str:
     """Volatile, per-alert half of the prompt.
 
@@ -101,13 +100,6 @@ def build_prompt(
         lines.append(
             'If this event shows one of these, answer "suspicious" and add the tag '
             f'"{OWNER_REAL_TAG}", even if it looks harmless.'
-        )
-    if watches:
-        lines += ["", "The owner asked to be told when:"]
-        lines += [f'{n}. "{request}"' for n, request in enumerate(watches, 1)]
-        lines.append(
-            'If this event shows one of these happening, answer "suspicious" and add the tag '
-            f'"{OWNER_WATCH_TAG}_<number>", e.g. "{OWNER_WATCH_TAG}_1".'
         )
     if extra_context:
         lines += ["", "Additional context:", extra_context]
@@ -171,3 +163,27 @@ def build_summary_prompt(
         )
     lines += ["", "Respond with the JSON object only."]
     return "\n".join(lines)
+
+
+# A watch ("tell me when...", D-065) is its own strict question (B-029): live,
+# a request riding along on the screening question was tagged as seen while
+# the model described "a person seated, working".
+WATCH_SYSTEM = """You check security-camera frames for one specific thing the owner \
+asked to be told about.
+
+Answer with exactly one JSON object and nothing else:
+{"seen": true|false, "evidence": "<one sentence: what in the frames shows it, or what you see instead>"}
+
+Answer "seen": true only if a frame clearly shows exactly what was asked. Something \
+similar, ordinary activity (standing, walking, sitting on a chair, working), or \
+something you cannot make out is false."""
+
+
+def build_watch_prompt(ctx: AlertContext, frame_count: int, request: str) -> str:
+    when = safe_strftime(ctx.start_time, "%H:%M")
+    return (
+        f"{frame_count} frame(s) from one event on camera {ctx.camera} at {when}, in chronological order.\n\n"
+        f'The owner asked to be told when: "{request}".\n'
+        "Does any frame clearly show this? Respond with the JSON object only."
+    )
+

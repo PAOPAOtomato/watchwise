@@ -546,3 +546,25 @@ async def test_the_screener_reads_what_setup_changes_while_it_runs(nvr_client, p
     assert "About this camera, from the owner: the driveway" in seen[1]
     assert '- "anyone at the window"' in seen[1]
     assert result.verdict is Verdict.SUSPICIOUS, "a rule the owner set can only raise"
+
+
+def test_a_watch_answer_counts_only_with_evidence():
+    """B-029: a watch is its own strict question; a bare yes isn't enough."""
+    from watchwise.tier2.vlm.base import parse_watch_reply
+
+    assert parse_watch_reply('{"seen": true, "evidence": "a person lying on the floor"}') == (True, "a person lying on the floor")
+    assert parse_watch_reply('```json\n{"seen": "yes", "evidence": "the parcel is gone"}\n```')[0] is True
+    assert parse_watch_reply('{"seen": true, "evidence": ""}') == (False, "")
+    assert parse_watch_reply('{"seen": false, "evidence": "a person seated at the desk"}')[0] is False
+    for unreadable in (None, "", "yes", "<think>{</think>"):
+        assert parse_watch_reply(unreadable) is None
+
+
+def test_only_rules_worded_for_anyone_cover_recognized_residents():
+    """D-067: the owner's wording decides ("anyone", "any person")."""
+    from watchwise.config import AlertRules
+
+    rules = AlertRules(always=["anyone at the window", "Any person in the kitchen at night", "anybody climbing",
+                               "everyone leaving", "someone at the window", "a ladder", "company van", "many people"])
+    assert rules.for_everyone() == ["anyone at the window", "Any person in the kitchen at night", "anybody climbing",
+                                    "everyone leaving"]

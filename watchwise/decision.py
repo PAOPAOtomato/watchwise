@@ -215,7 +215,7 @@ class DecisionPolicy:
                     screen=screen,
                     matched_memory_ids=list(screen.memory_ids),
                 ),
-                not (screen.owner_real or screen.owner_watch),
+                not screen.owner_real,
             )
 
         # Everything else is the escalation case the cascade exists for.

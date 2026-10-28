@@ -407,7 +407,8 @@ class SetupChat:
         text = (
             "<b>3/4 · What should always alert you</b>, even when you're home? One per line, "
             "e.g. “anyone at the window” or “someone carrying a ladder”. The vision model "
-            "checks every event for these."
+            "checks every event for these. Residents Frigate recognizes are left out, unless a "
+            "rule says “anyone” or “any person”."
         )
         if rules:
             text += "\nNow:\n" + "\n".join(f"• {esc(r)}" for r in rules) + "\n(A reply replaces these.)"

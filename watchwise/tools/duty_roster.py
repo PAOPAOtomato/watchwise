@@ -52,6 +52,7 @@ class DutyRoster:
         self.timezone = timezone
         self._entries: list[dict[str, Any]] = []
         self._mtime: float | None = None
+        self._unknown_zones: set[str] = set()
         self.load()
 
     def tzinfo(self) -> dt.tzinfo:
@@ -131,6 +132,11 @@ class DutyRoster:
         hits: list[dict[str, Any]] = []
         for entry in self._entries:
             own = zone(entry.get("timezone"))
+            if own is None and entry.get("timezone") and entry["timezone"] not in self._unknown_zones:
+                # Silent on Windows without tzdata, until CI caught it.
+                self._unknown_zones.add(entry["timezone"])
+                logger.warning("duty roster: unknown time zone %r in rule %r; using %s",
+                               entry["timezone"], entry.get("name"), self.timezone)
             local = safe_datetime(timestamp, own) if own is not None else moment
             if local is None or not self._in_window(local, entry):
                 continue

@@ -525,3 +525,14 @@ def test_a_roster_rule_can_carry_its_own_time_zone(tmp_path):
     thursday_2pm_utc = dt.datetime(2026, 10, 29, 14, 0, tzinfo=dt.timezone.utc).timestamp()
     assert roster.match(thursday_2pm_utc) == [], "09:00 in Chicago"
     assert roster.entries()[0]["name"] == "cleaner"
+
+
+def test_a_rule_with_an_unknown_time_zone_says_so(tmp_path, caplog):
+    """A zone the machine doesn't know (Windows without tzdata) used to be
+    ignored silently: the rule then ran in the file's zone."""
+    from watchwise.tools.duty_roster import DutyRoster
+
+    path = tmp_path / "roster.yml"
+    path.write_text("timezone: UTC\nentries:\n  - name: cleaner\n    timezone: Mars/Olympus\n", encoding="utf-8")
+    DutyRoster(path).match(time.time())
+    assert "unknown time zone 'Mars/Olympus' in rule 'cleaner'" in caplog.text

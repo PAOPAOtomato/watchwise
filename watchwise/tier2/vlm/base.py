@@ -171,6 +171,20 @@ def _json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+def parse_watch_reply(raw: str | None) -> tuple[bool, str] | None:
+    """A watch check's answer: (seen, evidence), or None if unreadable. Seen
+    counts only with evidence (a bare yes is not enough)."""
+    text, _ = split_reasoning((raw or "").strip())
+    payload = _json_object(text) if text else None
+    if payload is None:
+        return None
+    seen = payload.get("seen")
+    evidence = " ".join(str(payload.get("evidence") or "").split())[:240]
+    if isinstance(seen, str):
+        seen = seen.strip().lower() in ("true", "yes")
+    return bool(seen) and bool(evidence), evidence
+
+
 def parse_summary_reply(raw: str | None) -> ReviewSummary | None:
     """A whole-event summary, or None: without one, the card just goes
     without a "What happened" line."""

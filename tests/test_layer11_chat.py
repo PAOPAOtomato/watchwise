@@ -24,7 +24,7 @@ from watchwise.llm.stub import StubChat
 from watchwise.notify.telegram import TelegramAPI
 from watchwise.tier2.vlm.base import VLMBackend
 from watchwise.timeutil import local_zone_name
-from watchwise.types import Decision, Disposition, Severity, Stage, Verdict
+from watchwise.types import Decision, Disposition, Severity, Stage
 from watchwise.wiring import build_system
 from tests.conftest import make_alert
 
@@ -225,8 +225,8 @@ async def test_arming_and_snooze_apply_on_confirm(home):
 
 
 async def test_a_watch_alerts_once_when_the_vision_model_sees_it(home):
-    """"Tell me when the parcel is picked up": confirmed, then checked on
-    every event from that camera; a match alerts (no investigation) and ends it."""
+    """"Tell me when the parcel is picked up": confirmed, then checked once at
+    the end of every event from that camera; a match alerts and ends it."""
     sys_, state, model, _ = home
     model.script = [call("propose_watch", request="the parcel is picked up", camera="cam_door", hours=12),
                     say("Tap Confirm and I'll watch.")]
@@ -242,17 +242,19 @@ async def test_a_watch_alerts_once_when_the_vision_model_sees_it(home):
         name = "seeing"
 
         async def infer(self, frames, prompt, system):
+            from watchwise.tier2 import prompts
+
             prompts_seen.append(prompt)
-            return json.dumps({"verdict": "benign", "confidence": 0.9, "reason": "a resident picks up the parcel",
-                               "tags": ["owner_watch_1"]})
+            if system == prompts.WATCH_SYSTEM:
+                return json.dumps({"seen": True, "evidence": "a person carries the parcel out of view"})
+            return json.dumps({"title": "Hall", "summary": "A resident walks through the hall.", "threat_level": 0})
 
     sys_.screener.vlm = Seeing("m")
-    result = await sys_.screener.screen_frames(make_alert(review_id="pick-1", camera="cam_door", start_time=NOW))
-    assert '1. "the parcel is picked up"' in prompts_seen[0]
-    assert result.verdict is Verdict.SUSPICIOUS and result.owner_watch
-    assert result.reason.startswith("👀 You asked to be told when “the parcel is picked up”")
-    decision, investigate = sys_.policy.from_screening(make_alert(review_id="pick-1", camera="cam_door"), result)
-    assert decision.disposition is Disposition.ALERTED and not investigate
+    summary = await sys_.screener.summarize(make_alert(review_id="pick-1", camera="cam_door", start_time=NOW))
+    assert 'The owner asked to be told when: "the parcel is picked up"' in prompts_seen[1]
+    assert summary.owner_asked and summary.threat_level >= 1
+    assert summary.short_summary.startswith(
+        "👀 You asked to be told when “the parcel is picked up”: a person carries the parcel out of view")
     assert sys_.screener.watches.active() == [], "a watch ends when it matches"
 
 

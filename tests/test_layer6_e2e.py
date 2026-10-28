@@ -928,3 +928,121 @@ async def test_face_results_reach_whoever_listens(system):
     stop()
     system.pipeline.note_face({"type": "face", "id": "feed-2-obj", "name": None, "camera": "cam_door"})
     assert seen == [FaceSeen("cam_door", "Rui", 0.93), FaceSeen("cam_door", "Rui", confirmed=True)]
+
+
+# ---------------- watches and faces (B-029) ----------------
+
+
+class WatchVLM(VLMBackend):
+    """Answers the watches' question (seen or not) and the general ones."""
+
+    name = "watch-vlm"
+
+    def __init__(self, *, seen: bool):
+        super().__init__("watch-vlm")
+        self.seen, self.asked = seen, []
+
+    async def infer(self, frames, prompt, system):
+        from watchwise.tier2 import prompts
+
+        self.asked.append((system, len(frames)))
+        if system == prompts.WATCH_SYSTEM:
+            return json.dumps({"seen": self.seen, "evidence": "a person lying on the floor by the desk" if self.seen
+                               else "a person seated at the desk"})
+        if system == prompts.SUMMARY_SYSTEM:
+            return json.dumps({"title": "Person at the desk", "summary": "Sits down, then slides to the floor.",
+                               "threat_level": 0, "confidence": 0.8})
+        return json.dumps({"verdict": "benign", "confidence": 0.95, "reason": "a resident at the desk"})
+
+
+def _watching(system, request: str = "someone fell down to the ground"):
+    from watchwise.memory.watches import WatchBook
+
+    system.config.faces.household = ["Ray"]
+    system.arming.set("armed_home")
+    book = WatchBook(system.store)
+    system.screener.watches = book
+    book.add(request, ["cam_door"], 24)
+    return book
+
+
+async def test_a_watch_is_checked_even_when_a_resident_is_recognized(system):
+    """Live 2026-10-27 22:41: "notify me when anyone fell down" was confirmed,
+    then Frigate named Ray and the event was held back with no model call,
+    so the watch never saw it. Now the watches' question runs once when the
+    event ends (D-066): one call, nothing else."""
+    from watchwise.tier2 import prompts
+
+    book = _watching(system)
+    vlm = WatchVLM(seen=True)
+    system.screener.vlm = vlm
+    kwargs = dict(sub_labels=["ray"], ts=DAY_TS + 800_000, duration=40.0)
+    first = await system.pipeline.handle(_faced("new", "fall-1", **kwargs))
+    assert first.stage is Stage.FACE and vlm.asked == [], "while it runs: held back, no model call"
+    ended = await system.pipeline.handle(_faced("end", "fall-1", **kwargs))
+    assert vlm.asked == [(prompts.WATCH_SYSTEM, 4)], "one question, on frames across the whole event"
+    assert (ended.disposition, ended.stage) == (Disposition.ALERTED, Stage.SUMMARIZED)
+    assert ended.summary == "👀 You asked to be told when “someone fell down to the ground”: a person lying on the floor by the desk"
+    assert book.active() == [], "the watch ends once it has alerted"
+
+
+async def test_a_watch_rides_on_the_whole_event_summary_for_everyone_else(system):
+    from watchwise.tier2 import prompts
+
+    book = _watching(system)
+    vlm = WatchVLM(seen=True)
+    system.screener.vlm = vlm
+    kwargs = dict(ts=DAY_TS + 810_000, duration=40.0)  # nobody recognized
+    await system.pipeline.handle(_faced("new", "fall-2", **kwargs))
+    assert [s for s, _ in vlm.asked] == [prompts.SYSTEM], "the first look doesn't ask about watches"
+    ended = await system.pipeline.handle(_faced("end", "fall-2", **kwargs))
+    assert [s for s, _ in vlm.asked][1:] == [prompts.SUMMARY_SYSTEM, prompts.WATCH_SYSTEM]
+    assert vlm.asked[1][1] == vlm.asked[2][1] == 4, "the same frames as the summary"
+    assert ended.disposition is Disposition.ALERTED and "👀 You asked to be told when" in ended.summary
+    assert book.active() == []
+
+
+async def test_a_watch_that_sees_nothing_changes_nothing(system):
+    book = _watching(system)
+    system.screener.vlm = WatchVLM(seen=False)
+    kwargs = dict(sub_labels=["ray"], ts=DAY_TS + 815_000, duration=40.0)
+    await system.pipeline.handle(_faced("new", "fall-3", **kwargs))
+    ended = await system.pipeline.handle(_faced("end", "fall-3", **kwargs))
+    assert ended.stage is Stage.FACE and book.active(), "still held back; still watching"
+
+
+async def test_without_a_watch_a_recognized_resident_still_costs_no_model_call(system):
+    book = _watching(system)
+    book.cancel(book.active()[0].id)
+    vlm = WatchVLM(seen=True)
+    system.screener.vlm = vlm
+    kwargs = dict(sub_labels=["ray"], ts=DAY_TS + 820_000, duration=40.0)
+    await system.pipeline.handle(_faced("new", "fall-4", **kwargs))
+    held = await system.pipeline.handle(_faced("end", "fall-4", **kwargs))
+    assert held.stage is Stage.FACE and vlm.asked == []
+
+
+async def test_an_always_alert_rule_for_anyone_includes_recognized_residents(system):
+    """D-067: "anyone" / "any person" in a rule means residents too; other
+    rules leave a recognized resident held back, with no model call."""
+    from watchwise.tier2 import prompts
+
+    system.config.faces.household = ["Ray"]
+    system.arming.set("armed_home")
+    system.config.alerts.always = ["a ladder against the wall", "anyone at the window"]
+    vlm = WatchVLM(seen=True)
+    system.screener.vlm = vlm
+    kwargs = dict(sub_labels=["ray"], ts=DAY_TS + 830_000, duration=40.0)
+    await system.pipeline.handle(_faced("new", "win-1", **kwargs))
+    assert vlm.asked == []
+    ended = await system.pipeline.handle(_faced("end", "win-1", **kwargs))
+    assert vlm.asked == [(prompts.WATCH_SYSTEM, 4)], "only the rule for anyone is asked, once"
+    assert (ended.disposition, ended.stage) == (Disposition.ALERTED, Stage.SUMMARIZED)
+    assert ended.summary.startswith("🚨 You asked to always be alerted for “anyone at the window”: ")
+    assert system.config.alerts.always == ["a ladder against the wall", "anyone at the window"], "a rule isn't used up"
+
+    system.config.alerts.always = ["a ladder against the wall"]
+    vlm.asked.clear()
+    await system.pipeline.handle(_faced("new", "win-2", **{**kwargs, "ts": DAY_TS + 840_000}))
+    held = await system.pipeline.handle(_faced("end", "win-2", **{**kwargs, "ts": DAY_TS + 840_000}))
+    assert held.stage is Stage.FACE and vlm.asked == [], "a rule without “anyone” doesn't cover a recognized resident"

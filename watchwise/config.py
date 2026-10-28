@@ -316,15 +316,26 @@ def same_room(cameras: dict[str, CameraSettings], camera: str) -> list[str]:
     return [name for name in cameras if name != camera and room_key(cameras, name) == key]
 
 
+# Wording that makes an always-alert rule cover everyone, residents Frigate
+# recognizes included (D-067): "anyone at the window", "any person in the hall".
+EVERYONE = re.compile(r"\b(?:any\s?one|any\s?body|any\s+(?:person|people)|every\s?one|every\s?body)\b", re.IGNORECASE)
+
+
 class AlertRules(BaseModel):
     """What the owner always wants an alert for, in their own words (D-060).
 
     The vision model checks every event against them; a match alerts at once,
     like an event the owner marked real. They can only raise an event, never
-    lower one, and go to the model like the camera notes.
+    lower one, and go to the model like the camera notes. A resident Frigate
+    recognizes at home is held back before they are checked, unless the rule
+    says "anyone" or "any person" (D-067).
     """
 
     always: list[str] = Field(default_factory=list)
+
+    def for_everyone(self) -> list[str]:
+        """The rules worded to include recognized residents."""
+        return [rule for rule in self.always if EVERYONE.search(rule)]
 
 
 ArmingStateName = Literal["armed_away", "armed_night", "armed_home", "disarmed"]

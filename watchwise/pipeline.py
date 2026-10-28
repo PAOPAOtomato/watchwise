@@ -241,7 +241,16 @@ class Pipeline:
 
     async def _handle_report(self, ctx: AlertContext) -> Decision:
         if self._held_by_face(ctx.review_id):
-            return await self._recognized_report(ctx)
+            decision = await self._recognized_report(ctx)
+            if ctx.raw.get("type") == "end":
+                # A "tell me when..." watch, or an always-alert rule for
+                # "anyone", outranks a recognized face (B-029, D-067): a name
+                # says who it is, not what they did. It costs only their own
+                # question, once, when the event ends.
+                watched = await self.screener.watch_event(ctx, residents=True)
+                if watched is not None:
+                    decision = await self._apply_summary(ctx, watched)
+            return decision
         decision = await self._judge_report(ctx)
         if ctx.raw.get("type") == "end" and ctx.summary is None:
             # The event is over: say what happened across all of it (D-046).
@@ -494,7 +503,9 @@ class Pipeline:
         before or after (D-057)."""
         names = self._held_by_face(ctx.review_id)
         summary = self._summaries.get(ctx.review_id)
-        if names:
+        # What the owner asked to be told about outranks a recognized face (B-029).
+        watched = summary is not None and summary.owner_asked
+        if names and not watched:
             held = self._handled.get(ctx.review_id)
             if held is None or held.decision.stage is not Stage.FACE:
                 self.metrics["held_by_face"] += 1

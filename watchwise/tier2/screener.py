@@ -10,18 +10,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from watchwise.config import AlertRules, CameraSettings, VLMSettings
 from watchwise.memory.long_term import PatternLibrary
-from watchwise.memory.watches import WatchBook
+from watchwise.memory.watches import Watch, WatchBook
 from watchwise.tier2 import prompts
 from watchwise.tier2.gate import GateResult, ScreeningGate
 from watchwise.tier2.sampling import FrameSampler
-from watchwise.tier2.vlm.base import VLMBackend, parse_summary_reply
-from watchwise.types import OWNER_REAL_TAG, OWNER_WATCH_TAG, AlertContext, ReviewSummary, ScreenResult, Verdict
+from watchwise.tier2.vlm.base import VLMBackend, parse_summary_reply, parse_watch_reply
+from watchwise.types import OWNER_REAL_TAG, AlertContext, ReviewSummary, ScreenResult, Verdict
 
 logger = logging.getLogger(__name__)
+
+# Frames across a whole event for the watches' question.
+WATCH_FRAMES = 4
+
+
+@dataclass(frozen=True)
+class _Rule:
+    """An always-alert rule asked like a watch (for a recognized resident)."""
+
+    request: str
 
 
 class Screener:
@@ -83,7 +94,6 @@ class Screener:
         """The model half, for an alert the gate let through."""
         matches = self._memory_matches(ctx)
         extra = self._memory_context(ctx, matches)
-        watches = self._watches(ctx)
         async with self._sem:
             frames = await self.sampler.for_alert(ctx, self.settings.frames)
             if not frames:
@@ -104,7 +114,6 @@ class Screener:
                 arming=self._arming_state(),
                 camera_notes=self.camera_notes(ctx.camera),
                 always_alert=self.alerts.always,
-                watches=[w.request for w in watches],
             )
             result = await self.vlm.screen(frames, prompt, prompts.SYSTEM)
 
@@ -121,8 +130,6 @@ class Screener:
             # previously marked real event" and still said benign, because a
             # resident at home is ordinary. The owner asked for these.
             result.verdict = Verdict.SUSPICIOUS
-        if result.owner_watch and watches:
-            self._watch_matched(ctx, result, watches)
         return result
 
     def _watches(self, ctx: AlertContext) -> list:
@@ -134,30 +141,30 @@ class Screener:
             logger.exception("could not read the watches for %s", ctx.review_id)
             return []
 
-    def _watch_matched(self, ctx: AlertContext, result: ScreenResult, watches: list) -> None:
-        """What the owner asked to be told about happened (D-065): it alerts
-        (never lowers anything) and the watch ends."""
-        numbers = set()
-        for tag in result.tags:
-            suffix = tag.lower().removeprefix(OWNER_WATCH_TAG).lstrip("_")
-            if suffix.isdigit():
-                numbers.add(int(suffix))
-        matched = [w for n, w in enumerate(watches, 1) if n in numbers] or watches
-        if result.verdict is Verdict.BENIGN:
-            result.verdict = Verdict.SUSPICIOUS
-        asked = "; ".join(f"“{w.request}”" for w in matched)
-        result.reason = f"👀 You asked to be told when {asked}: {result.reason}"
-        assert self.watches is not None
-        self.watches.fulfil([w.id for w in matched], ctx.review_id)
-        logger.info("watch %s matched in %s", [w.id for w in matched], ctx.review_id)
+    async def _check_watches(self, ctx: AlertContext, frames: list, watches: list) -> list[tuple[Any, str]]:
+        """Ask the strict watch question for each watch on these frames: the
+        watches seen, with the model's evidence (B-029)."""
+        seen = []
+        for watch in watches:
+            raw = await self.vlm.describe(frames, prompts.build_watch_prompt(ctx, len(frames), watch.request),
+                                          prompts.WATCH_SYSTEM)
+            answer = parse_watch_reply(raw)
+            label = f"watch {watch.id}" if isinstance(watch, Watch) else f"rule “{watch.request}”"
+            logger.info("%s on %s: %s", label, ctx.review_id,
+                        f"seen={answer[0]} ({answer[1]})" if answer else f"no readable answer ({(raw or '')[:80]!r})")
+            if answer is not None and answer[0]:
+                seen.append((watch, answer[1]))
+        return seen
+
 
     async def summarize(self, ctx: AlertContext) -> ReviewSummary | None:
         """What happened over the whole event, from frames spread across it
         (D-046). None when switched off or when anything fails: the card then
         simply goes without it."""
         count = self.settings.summary_frames
+        watches = self._watches(ctx)
         if count <= 0:
-            return None
+            return await self.watch_event(ctx, watches)
         async with self._sem:
             frames = await self.sampler.for_alert(ctx, count, front_bias=False)
             if not frames:
@@ -172,11 +179,61 @@ class Screener:
                 always_alert=self.alerts.always,
             )
             raw = await self.vlm.describe(frames, prompt, prompts.SUMMARY_SYSTEM)
+            seen = await self._check_watches(ctx, frames, watches)
         self.stats["summaries"] += 1
         summary = parse_summary_reply(raw)
         if summary is None and raw:
             logger.info("no usable summary for %s: %s", ctx.review_id, raw[:200])
+        if seen:
+            if summary is None:
+                summary = ReviewSummary(title="", short_summary=seen[0][1])
+            self._summary_watch(ctx, summary, seen)
         return summary
+
+    async def watch_event(
+        self, ctx: AlertContext, watches: list | None = None, *, residents: bool = False
+    ) -> ReviewSummary | None:
+        """Only the owner's own questions, on frames across the whole event:
+        the watches, and with ``residents`` (a resident recognized at home,
+        held back before any other model call) the always-alert rules worded
+        for "anyone" (D-067). One call per question. A summary carrying the
+        match, or None."""
+        watches = self._watches(ctx) if watches is None else watches
+        if residents:
+            watches = [*watches, *(_Rule(rule) for rule in self.alerts.for_everyone())]
+        if not watches:
+            return None
+        async with self._sem:
+            frames = await self.sampler.for_alert(ctx, WATCH_FRAMES, front_bias=False)
+            if not frames:
+                return None
+            seen = await self._check_watches(ctx, frames, watches)
+        if not seen:
+            return None
+        summary = ReviewSummary(title="", short_summary="")
+        self._summary_watch(ctx, summary, seen)
+        return summary
+
+    def _summary_watch(self, ctx: AlertContext, summary: ReviewSummary, seen: list[tuple[Any, str]]) -> None:
+        """Frames across the whole event show what the owner asked about: it
+        alerts (never lowers anything); a watch ends, a rule stays. Checked
+        once, when the event ends (D-066: one call per event per question)."""
+        summary.owner_asked = True
+        summary.threat_level = max(summary.threat_level, 1)
+        watched = [(w, e) for w, e in seen if isinstance(w, Watch)]
+        ruled = [(r, e) for r, e in seen if not isinstance(r, Watch)]
+        parts = []
+        if watched:
+            asked = "; ".join(f"“{w.request}”" for w, _ in watched)
+            parts.append(f"👀 You asked to be told when {asked}: {watched[0][1]}")
+        if ruled:
+            asked = "; ".join(f"“{r.request}”" for r, _ in ruled)
+            parts.append(f"🚨 You asked to always be alerted for {asked}: {ruled[0][1]}")
+        summary.short_summary = " ".join([*parts, summary.short_summary]).strip()
+        if watched:
+            assert self.watches is not None
+            self.watches.fulfil([w.id for w, _ in watched], ctx.review_id)
+        logger.info("asked-for %s matched in %s", [w.request for w, _ in seen], ctx.review_id)
 
     def _arming_state(self) -> str | None:
         return (self.arming.get() or {}).get("state") if self.arming is not None else None
