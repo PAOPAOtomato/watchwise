@@ -145,6 +145,39 @@ CREATE TABLE IF NOT EXISTS note_requests (
 -- One card per incident per room (D-062): an event from another camera in
 -- the room joins the card of the event that opened it (the lead), whose
 -- notifications rows carry the messages.
+-- "Ask Watchwise" (D-065): the conversation, changes waiting for the owner's
+-- ✅ Confirm, and "tell me when..." watches the vision model checks.
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation    TEXT NOT NULL,
+    role            TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    created_at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_conversation ON chat_messages(conversation, id);
+
+CREATE TABLE IF NOT EXISTS proposals (
+    id              TEXT PRIMARY KEY,
+    conversation    TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    payload         TEXT NOT NULL,
+    summary         TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    result          TEXT NOT NULL DEFAULT '',
+    created_at      REAL NOT NULL,
+    decided_at      REAL
+);
+
+CREATE TABLE IF NOT EXISTS watches (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    request         TEXT NOT NULL,
+    cameras         TEXT NOT NULL DEFAULT '[]',
+    created_at      REAL NOT NULL,
+    expires_at      REAL NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'active',
+    review_id       TEXT
+);
+
 CREATE TABLE IF NOT EXISTS card_members (
     review_id       TEXT NOT NULL,
     channel         TEXT NOT NULL,
@@ -365,6 +398,43 @@ class Store:
             "INSERT OR IGNORE INTO card_members(review_id, channel, lead_review_id, created_at) VALUES (?,?,?,?)",
             (review_id, channel, lead_review_id, time.time()),
         )
+
+    def review_for_message(self, channel: str, chat_id: int | str, message_id: int | str) -> str | None:
+        """The event whose card is this message, if it is one."""
+        row = self.query_one(
+            "SELECT review_id FROM notifications WHERE channel=? AND chat_id=? AND message_id=?",
+            (channel, str(chat_id), str(message_id)),
+        )
+        return str(row["review_id"]) if row else None
+
+    # ---------------- chat (D-065) ----------------
+
+    def add_chat_message(self, conversation: str, role: str, content: str) -> None:
+        self.execute(
+            "INSERT INTO chat_messages(conversation, role, content, created_at) VALUES (?,?,?,?)",
+            (conversation, role, content, time.time()),
+        )
+
+    def chat_history(self, conversation: str, limit: int) -> list[sqlite3.Row]:
+        """The last ``limit`` messages, oldest first."""
+        rows = self.query(
+            "SELECT role, content FROM chat_messages WHERE conversation=? ORDER BY id DESC LIMIT ?",
+            (conversation, int(limit)),
+        )
+        return list(reversed(rows))
+
+    def clear_chat(self, conversation: str) -> None:
+        self.execute("DELETE FROM chat_messages WHERE conversation=?", (conversation,))
+
+    def recent_alerts(self, since: float, until: float | None = None, limit: int = 200) -> list[sqlite3.Row]:
+        """Events that started in the window, newest first."""
+        return self.query(
+            "SELECT * FROM alerts WHERE start_time>=? AND start_time<=? ORDER BY start_time DESC LIMIT ?",
+            (since, until if until is not None else 1e12, int(limit)),
+        )
+
+    def remove_card_member(self, review_id: str, channel: str) -> None:
+        self.execute("DELETE FROM card_members WHERE review_id=? AND channel=?", (review_id, channel))
 
     def card_lead(self, review_id: str, channel: str) -> str | None:
         """The event whose card this one joined, if it joined one."""

@@ -684,3 +684,32 @@ def test_setup_writes_each_cameras_room(generated):
     moved = plan_home(generated, HomeAnswers(notes={"webcam": "the desk"}, rooms={"webcam": "Bedroom"}))
     assert yaml.safe_load(moved.change.content)["cameras"] == {"webcam": {"notes": "the desk", "room": "Bedroom"}}
     assert "📷 laptopcam: no notes (− room bedroom)" in moved.lines
+
+
+def test_a_room_typed_as_a_sentence_keeps_only_the_room():
+    """B-027: live, "iphone_a is in living room" was saved as the room."""
+    from watchwise.setup.home import room_from_reply
+
+    for typed, room in (("iphone_a is in living room", "living room"), ("this is my living room", "living room"),
+                        ("It's in the kitchen.", "kitchen"), ("in the hall", "hall"), ("my Bedroom", "Bedroom"),
+                        ("Bedroom", "Bedroom"), ("guest room", "guest room")):
+        assert room_from_reply(typed) == room, typed
+
+
+def test_a_roster_rule_is_appended_keeping_the_file_as_it_was(tmp_path):
+    from watchwise.setup.roster import plan_roster_entry
+
+    entry = {"name": "cleaner", "days": ["thu"], "start": "13:00", "end": "16:00", "timezone": "America/Chicago"}
+    indented = tmp_path / "a.yml"
+    indented.write_text("# mine\ntimezone: UTC\nentries:\n  - name: guard  # nights\n    days: all\n\nnotes: kept\n",
+                        encoding="utf-8")
+    text = plan_roster_entry(indented, entry).content
+    assert text.startswith("# mine\ntimezone: UTC\nentries:\n  - name: guard  # nights\n    days: all\n  - name: cleaner\n")
+    assert text.endswith("\nnotes: kept\n") and yaml.safe_load(text)["entries"][-1] == entry
+
+    flush = tmp_path / "b.yml"
+    flush.write_text("entries:\n- name: guard\n  days: all\n", encoding="utf-8")
+    assert yaml.safe_load(plan_roster_entry(flush, entry).content)["entries"] == [{"name": "guard", "days": "all"}, entry]
+
+    missing = plan_roster_entry(tmp_path / "new.yml", entry, timezone="America/Chicago")
+    assert missing.action == "create" and yaml.safe_load(missing.content) == {"timezone": "America/Chicago", "entries": [entry]}

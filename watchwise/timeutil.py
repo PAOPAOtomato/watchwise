@@ -29,3 +29,33 @@ def safe_strftime(
 def safe_hour(ts: float, default: int = 12) -> int:
     moment = safe_datetime(ts)
     return moment.hour if moment else default
+
+
+def local_zone_name() -> str:
+    """This machine's time zone as an IANA name (e.g. America/Chicago), from
+    $TZ or the /etc/localtime link; UTC when neither says."""
+    import os
+    from pathlib import Path
+
+    name = os.environ.get("TZ", "").lstrip(":")
+    if "/" in name or name == "UTC":
+        return name
+    try:
+        target = str(Path("/etc/localtime").resolve())
+    except OSError:
+        return "UTC"
+    _, found, zone = target.partition("/zoneinfo/")
+    return zone if found and zone else "UTC"
+
+
+def zone(name: str | None) -> dt.tzinfo | None:
+    """An IANA time zone by name; None when it is unknown."""
+    if not name:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(name)
+    except Exception:
+        return None
+

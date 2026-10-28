@@ -38,6 +38,7 @@ from watchwise.notify.presenter import (
     TEXT_LIMIT,
     AlertCard,
     build_card,
+    SERIOUSNESS,
     build_room_card,
     clip_url,
     context_from_row,
@@ -45,6 +46,8 @@ from watchwise.notify.presenter import (
     keyboard_markup,
     parse_callback,
 )
+from watchwise.chat.proposals import ProposalBook
+from watchwise.chat.service import ChatService
 from watchwise.notify.setup_chat import Reply, SetupChat
 from watchwise.nvr.client import NVRClient
 from watchwise.setup.home import ARMING_LABELS
@@ -178,6 +181,9 @@ class TelegramAPI:
     async def answer_callback(self, callback_id: str, text: str | None = None) -> None:
         await self.call("answerCallbackQuery", callback_query_id=callback_id, text=text)
 
+    async def send_chat_action(self, chat_id: int | str, action: str = "typing") -> None:
+        await self.call("sendChatAction", chat_id=chat_id, action=action)
+
     async def get_updates(self, offset: int | None = None, timeout: int = 0) -> list[dict[str, Any]]:
         result = await self.call(
             "getUpdates",
@@ -259,14 +265,20 @@ class TelegramNotifier:
         lead = self.store.card_lead(ctx.review_id, CHANNEL)
         if lead is not None:
             # Another camera's event on a room card has a new verdict.
-            await self.apply(lead, footer=None, keyboard=None)
+            if self._stands_out(ctx, decision, lead):
+                self.store.remove_card_member(ctx.review_id, CHANNEL)
+                logger.info("%s on %s leaves the room card of %s for its own card", ctx.review_id, ctx.camera, lead)
+                await self.apply(lead, footer=None, keyboard=None)
+                await self._send(ctx, decision)
+            else:
+                await self.apply(lead, footer=None, keyboard=None)
             return
         rows = self.store.notifications_for(ctx.review_id, CHANNEL)
         if rows:
             await self._revise(ctx, decision, rows)
             return
         joined = self._open_card_in_room(ctx)
-        if joined is not None:
+        if joined is not None and not self._stands_out(ctx, decision, joined):
             self.store.add_card_member(joined, ctx.review_id, CHANNEL)
             logger.info("%s on %s joins the room card of %s", ctx.review_id, ctx.camera, joined)
             await self.apply(joined, footer=None, keyboard=None)
@@ -281,12 +293,13 @@ class TelegramNotifier:
 
     def _open_card_in_room(self, ctx: AlertContext) -> str | None:
         """The card of an incident this event is part of: another camera in
-        its room saw something overlapping it in time."""
+        its room saw something overlapping it in time, and the card's first
+        event began at most ``rooms.max_incident_s`` before this one."""
         key = room_key(self.cameras, ctx.camera)
         if key.startswith("camera:"):
             return None  # a camera in a room of its own
         for card in self.store.recent_cards(CHANNEL, since=self.clock() - RECENT_CARDS_S):
-            if room_key(self.cameras, card["camera"]) != key:
+            if room_key(self.cameras, card["camera"]) != key or not self._in_incident(ctx, card):
                 continue
             members = (self.store.get_alert(m) for m in self.store.card_members(card["review_id"], CHANNEL))
             entries = [card, *(m for m in members if m is not None)]
@@ -306,10 +319,39 @@ class TelegramNotifier:
                 self.store.notifications_for(review_id, CHANNEL)
                 or self.store.card_lead(review_id, CHANNEL)
                 or not self._overlaps(ctx, row)
+                or not self._in_incident(row, ctx)
             ):
                 continue
             companions.append(review_id)
+        if companions:
+            logger.info("%s on %s: the room card also shows %s", ctx.review_id, ctx.camera, ", ".join(companions))
         return companions
+
+    def _in_incident(self, later: Any, first: Any) -> bool:
+        """Does ``later`` start soon enough after ``first`` to share its card
+        (B-028)? Without a limit, a room with someone in it would keep one
+        card open, and a new incident there would only edit it, silently."""
+        start = later.start_time if isinstance(later, AlertContext) else float(later["start_time"])
+        begun = first.start_time if isinstance(first, AlertContext) else float(first["start_time"])
+        return start - begun <= self.rooms.max_incident_s
+
+    def _stands_out(self, ctx: AlertContext, decision: Decision, lead: str) -> bool:
+        """Would this event go unnoticed on the room's card (B-028)? Telegram
+        doesn't notify edits, so an event that would alert by itself gets its
+        own card when it is more serious than everything else on the card,
+        or when the owner has already answered the card."""
+        if not self._wanted(ctx, decision):
+            return False
+        rows = self.store.notifications_for(lead, CHANNEL)
+        if rows and str(rows[0]["keyboard"]).startswith("after_feedback"):
+            return True
+        levels = []
+        for review_id in [lead, *self.store.card_members(lead, CHANNEL)]:
+            row = self.store.get_alert(review_id) if review_id != ctx.review_id else None
+            other = decision_from_row(row) if row is not None else None
+            if other is not None:
+                levels.append(SERIOUSNESS.get(other.disposition, 0))
+        return SERIOUSNESS.get(decision.disposition, 0) > max(levels, default=-1)
 
     def _overlaps(self, ctx: AlertContext, row: Any) -> bool:
         """Do the two events overlap, give or take the merge window? An event
@@ -440,6 +482,9 @@ HELP = (
     "🔇 Snooze: mute this camera for a while (alerts are still recorded)\n"
     "❓ Why: the evidence behind the decision\n"
     "↩️ Undo: take back your last answer on that card\n"
+    "Ask in your own words, e.g. “anything in the kitchen today?”, or reply to a card to ask "
+    "about it. Changes (roster, arming, muting, “tell me when…”) only happen when you tap ✅ Confirm. "
+    "/new starts a new conversation\n"
     "/setup: tell Watchwise about your home (cameras, residents, what always alerts)\n"
     "/arm: see or switch arming (Home, Away, Night, Off)\n"
     "/face &lt;name&gt;: add your face to Frigate's Face Library from what the camera sees now"
@@ -478,6 +523,8 @@ class TelegramBot:
         *,
         setup: SetupChat | None = None,
         arming: Any = None,
+        chat: ChatService | None = None,
+        proposals: ProposalBook | None = None,
     ):
         self.api = api
         self.settings = settings
@@ -487,6 +534,10 @@ class TelegramBot:
         self.setup = setup
         # Anything with get() and set(state, source); /arm reads and switches it.
         self.arming = arming
+        # "Ask Watchwise" (D-065): questions, and the changes it proposes.
+        self.chat = chat
+        self.proposals = proposals
+        self._chat_locks: dict[str, asyncio.Lock] = {}
         self._offset: int | None = None
         self._task: asyncio.Task[None] | None = None
         # Work that outlives one update (the recognition check).
@@ -576,12 +627,71 @@ class TelegramBot:
             await self._face(chat_id, text)
         elif text.startswith("/help"):
             await self.api.send_message(chat_id, HELP)
+        elif text.startswith("/new") and self.chat is not None:
+            self.chat.reset(str(chat_id))
+            await self.api.send_message(chat_id, "🆕 New conversation: earlier questions are forgotten.")
+        elif self.chat is not None and text and not text.startswith("/"):
+            about = self.notifier.store.review_for_message(CHANNEL, chat_id, replied_to) if replied_to else None
+            self._spawn(self._ask(chat_id, text, message.get("message_id"), about))
         else:
             await self.api.send_message(
                 chat_id,
-                "Conversation with Watchwise arrives in a later version. For now, use the "
+                "Questions need a chat model (roles.chat in the config). For now, use the "
                 "buttons on alert cards (/help explains them).",
             )
+
+    # ---------------- Ask Watchwise (D-065) ----------------
+
+    async def _ask(self, chat_id: Any, text: str, message_id: Any, about: str | None) -> None:
+        """Answer one question (in the background: it can take a while on a
+        local model), in order per chat."""
+        assert self.chat is not None
+        lock = self._chat_locks.setdefault(str(chat_id), asyncio.Lock())
+        async with lock:
+            try:
+                with contextlib.suppress(TelegramError):
+                    await self.api.send_chat_action(chat_id, "typing")
+                answer = await self.chat.ask(str(chat_id), text, about=about)
+                await self.api.send_message(chat_id, html.escape(answer.text, quote=False)[:4000], reply_to=message_id)
+                for review_id in answer.images:
+                    await self._photo(chat_id, review_id)
+                for proposal in answer.proposals:
+                    await self.api.send_message(
+                        chat_id,
+                        f"📝 {html.escape(proposal.summary, quote=False)}\nNothing changes unless you confirm.",
+                        reply_markup=_markup([[("✅ Confirm", f"pr:ok:{proposal.id}"), ("✖️ Cancel", f"pr:no:{proposal.id}")]]),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("answering a question failed")
+
+    async def _photo(self, chat_id: Any, review_id: str) -> None:
+        row = self.notifier.store.get_alert(review_id)
+        if row is None or not self.settings.send_images:
+            return
+        ctx = context_from_row(row)
+        image = await self.notifier._snapshot(ctx)
+        if image:
+            when = safe_strftime(ctx.start_time, "%a %H:%M")
+            await self.api.send_photo(chat_id, image, f"📷 {html.escape(ctx.camera, quote=False)} · {when}")
+
+    async def _proposal_button(self, query: dict[str, Any], chat_id: Any, data: str) -> None:
+        _, action, proposal_id = (data.split(":", 2) + ["", ""])[:3]
+        if self.proposals is None or not proposal_id:
+            await self._answer(query, "Unknown button.")
+            return
+        user = query.get("from") or {}
+        if action == "ok":
+            outcome = self.proposals.confirm(proposal_id)
+            logger.info("proposal %s confirmed by telegram:%s", proposal_id, user.get("username") or user.get("id"))
+        else:
+            outcome = self.proposals.cancel(proposal_id)
+        await self._answer(query, outcome.text[:190])
+        message = query.get("message") or {}
+        if message.get("message_id") is not None:
+            mark = "✅" if action == "ok" and outcome.done else "✖️"
+            await self.api.edit(chat_id, message["message_id"], f"{mark} {html.escape(outcome.text, quote=False)}", has_image=False)
 
     async def _on_button(self, query: dict[str, Any]) -> None:
         message = query.get("message") or {}
@@ -599,6 +709,9 @@ class TelegramBot:
             return
         if data.startswith("ar:"):
             await self._arm_button(query, chat_id, data[3:])
+            return
+        if data.startswith("pr:"):
+            await self._proposal_button(query, chat_id, data)
             return
         parsed = parse_callback(data)
         if parsed is None:
@@ -641,7 +754,7 @@ class TelegramBot:
             elif reply.text:
                 await self.api.send_message(chat_id, reply.text, reply_markup=markup)
             if reply.face:
-                await self._face_capture(chat_id, reply.face, None)
+                await self._face_capture(chat_id, reply.face, reply.face_camera)
             if reply.check:
                 self._spawn(self._check(chat_id))
 

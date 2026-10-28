@@ -160,7 +160,7 @@ def being_investigated(decision: Decision) -> bool:
     return (
         decision.stage is Stage.SCREENED
         and decision.disposition is Disposition.ALERTED
-        and not (decision.screen is not None and decision.screen.owner_real)
+        and not (decision.screen is not None and (decision.screen.owner_real or decision.screen.owner_watch))
     )
 
 

@@ -237,3 +237,10 @@ async def test_the_face_library_lists_people_not_frigates_training_folder(nvr_cl
     assert await nvr_client.faces() == {}
     nvr_state.faces = {"Ray": 4, "alex": 1}
     assert await nvr_client.faces() == {"Ray": 4, "alex": 1}
+
+
+async def test_cameras_switched_off_in_the_nvr_are_left_out(nvr_client, nvr_state):
+    """A camera disabled in Frigate's config (laptopcam after the live test)
+    is not asked about in /setup, nor offered for photos."""
+    nvr_state.cameras["cam_door"]["enabled"] = False
+    assert await nvr_client.cameras() == ["cam_drive", "cam_yard"]

@@ -14,11 +14,12 @@ from typing import Any
 
 from watchwise.config import AlertRules, CameraSettings, VLMSettings
 from watchwise.memory.long_term import PatternLibrary
+from watchwise.memory.watches import WatchBook
 from watchwise.tier2 import prompts
 from watchwise.tier2.gate import GateResult, ScreeningGate
 from watchwise.tier2.sampling import FrameSampler
 from watchwise.tier2.vlm.base import VLMBackend, parse_summary_reply
-from watchwise.types import OWNER_REAL_TAG, AlertContext, ReviewSummary, ScreenResult, Verdict
+from watchwise.types import OWNER_REAL_TAG, OWNER_WATCH_TAG, AlertContext, ReviewSummary, ScreenResult, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class Screener:
         arming: Any = None,
         cameras: dict[str, CameraSettings] | None = None,
         alerts: AlertRules | None = None,
+        watches: WatchBook | None = None,
     ):
         self.gate = gate
         self.sampler = sampler
@@ -47,6 +49,8 @@ class Screener:
         # objects, which /setup updates in place.
         self.cameras = cameras if cameras is not None else {}
         self.alerts = alerts if alerts is not None else AlertRules()
+        # "Tell me when..." requests from the chat, checked on every event.
+        self.watches = watches
         self._sem = asyncio.Semaphore(max(1, settings.max_concurrency))
         self.stats = {"gated": 0, "screened": 0, "errors": 0, "summaries": 0}
 
@@ -79,6 +83,7 @@ class Screener:
         """The model half, for an alert the gate let through."""
         matches = self._memory_matches(ctx)
         extra = self._memory_context(ctx, matches)
+        watches = self._watches(ctx)
         async with self._sem:
             frames = await self.sampler.for_alert(ctx, self.settings.frames)
             if not frames:
@@ -99,6 +104,7 @@ class Screener:
                 arming=self._arming_state(),
                 camera_notes=self.camera_notes(ctx.camera),
                 always_alert=self.alerts.always,
+                watches=[w.request for w in watches],
             )
             result = await self.vlm.screen(frames, prompt, prompts.SYSTEM)
 
@@ -115,7 +121,35 @@ class Screener:
             # previously marked real event" and still said benign, because a
             # resident at home is ordinary. The owner asked for these.
             result.verdict = Verdict.SUSPICIOUS
+        if result.owner_watch and watches:
+            self._watch_matched(ctx, result, watches)
         return result
+
+    def _watches(self, ctx: AlertContext) -> list:
+        if self.watches is None:
+            return []
+        try:
+            return self.watches.active(ctx.camera)
+        except Exception:
+            logger.exception("could not read the watches for %s", ctx.review_id)
+            return []
+
+    def _watch_matched(self, ctx: AlertContext, result: ScreenResult, watches: list) -> None:
+        """What the owner asked to be told about happened (D-065): it alerts
+        (never lowers anything) and the watch ends."""
+        numbers = set()
+        for tag in result.tags:
+            suffix = tag.lower().removeprefix(OWNER_WATCH_TAG).lstrip("_")
+            if suffix.isdigit():
+                numbers.add(int(suffix))
+        matched = [w for n, w in enumerate(watches, 1) if n in numbers] or watches
+        if result.verdict is Verdict.BENIGN:
+            result.verdict = Verdict.SUSPICIOUS
+        asked = "; ".join(f"“{w.request}”" for w in matched)
+        result.reason = f"👀 You asked to be told when {asked}: {result.reason}"
+        assert self.watches is not None
+        self.watches.fulfil([w.id for w in matched], ctx.review_id)
+        logger.info("watch %s matched in %s", [w.id for w in matched], ctx.review_id)
 
     async def summarize(self, ctx: AlertContext) -> ReviewSummary | None:
         """What happened over the whole event, from frames spread across it

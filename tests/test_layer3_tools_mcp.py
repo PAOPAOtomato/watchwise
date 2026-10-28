@@ -506,3 +506,22 @@ async def test_cross_reference_reads_a_camera_in_the_same_room_as_another_angle(
     nvr_state.add_event(event_id="e2", camera="cam_yard", start_time=t0 + 40)
     result = await CROSS_TOOL.run(tool_ctx, {"start_time": t0, "exclude_camera": "cam_drive"})
     assert result["event_count"] == 1 and list(result["cameras_with_activity"]) == ["cam_yard"]
+
+
+def test_a_roster_rule_can_carry_its_own_time_zone(tmp_path):
+    """D-065: rules confirmed in chat are in the house's local time, whatever
+    the file's timezone says (the live roster file says UTC)."""
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+
+    from watchwise.tools.duty_roster import DutyRoster
+
+    path = tmp_path / "roster.yml"
+    path.write_text("timezone: UTC\nentries:\n  - name: cleaner\n    days: [thu]\n    start: '13:00'\n"
+                    "    end: '16:00'\n    timezone: America/Chicago\n", encoding="utf-8")
+    roster = DutyRoster(path)
+    thursday_2pm_chicago = dt.datetime(2026, 10, 29, 14, 0, tzinfo=ZoneInfo("America/Chicago")).timestamp()
+    assert [m["name"] for m in roster.match(thursday_2pm_chicago)] == ["cleaner"]
+    thursday_2pm_utc = dt.datetime(2026, 10, 29, 14, 0, tzinfo=dt.timezone.utc).timestamp()
+    assert roster.match(thursday_2pm_utc) == [], "09:00 in Chicago"
+    assert roster.entries()[0]["name"] == "cleaner"

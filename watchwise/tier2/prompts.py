@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 
 from watchwise.timeutil import safe_hour, safe_strftime
-from watchwise.types import OWNER_REAL_TAG, AlertContext
+from watchwise.types import OWNER_REAL_TAG, OWNER_WATCH_TAG, AlertContext
 
 SYSTEM = """You are the fast screening stage of a video surveillance pipeline.
 You look at a few frames from one motion event and decide whether it needs a \
@@ -72,6 +72,7 @@ def build_prompt(
     arming: str | None = None,
     camera_notes: str = "",
     always_alert: list[str] | tuple[str, ...] = (),
+    watches: list[str] | tuple[str, ...] = (),
 ) -> str:
     """Volatile, per-alert half of the prompt.
 
@@ -100,6 +101,13 @@ def build_prompt(
         lines.append(
             'If this event shows one of these, answer "suspicious" and add the tag '
             f'"{OWNER_REAL_TAG}", even if it looks harmless.'
+        )
+    if watches:
+        lines += ["", "The owner asked to be told when:"]
+        lines += [f'{n}. "{request}"' for n, request in enumerate(watches, 1)]
+        lines.append(
+            'If this event shows one of these happening, answer "suspicious" and add the tag '
+            f'"{OWNER_WATCH_TAG}_<number>", e.g. "{OWNER_WATCH_TAG}_1".'
         )
     if extra_context:
         lines += ["", "Additional context:", extra_context]

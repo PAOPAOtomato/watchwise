@@ -169,6 +169,10 @@ rooms:
   # Two cameras' events in one room are one incident when they overlap in
   # time, or one starts within this many seconds of the other's end.
   merge_window_s: 30
+  # A card takes a room's events for at most this long after its first one;
+  # later events, and events that would otherwise go unnoticed on it (more
+  # serious than the card, or after you answered it), get a card of their own.
+  max_incident_s: 300
 # What should always alert, even at home. The vision model checks every event
 # for these (sent to its provider, with a cloud model); a match alerts at once
 # and can only raise an event, never lower one.

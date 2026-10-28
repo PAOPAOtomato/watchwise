@@ -23,6 +23,10 @@ Schema:
         labels: [person]
         expect: "rostered guard patrol"
         confidence: 0.9
+        timezone: Europe/Paris           # optional: this entry's own zone
+
+An entry's own ``timezone`` wins over the file's (rules proposed in chat carry
+the house's zone, so "Thursdays 1-4 pm" means local time whatever the file says).
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from typing import Any
 
 import yaml
 
-from watchwise.timeutil import safe_datetime
+from watchwise.timeutil import safe_datetime, zone
 from watchwise.tools.base import ForensicTool, ToolContext, obj_schema
 
 logger = logging.getLogger(__name__)
@@ -72,6 +76,11 @@ class DutyRoster:
         self.timezone = data.get("timezone", self.timezone)
         self._entries = list(data.get("entries") or [])
         self._mtime = self.path.stat().st_mtime
+
+    def entries(self) -> list[dict[str, Any]]:
+        """The rules as they are in the file now."""
+        self._maybe_reload()
+        return list(self._entries)
 
     def _maybe_reload(self) -> None:
         """Pick up edits without a restart -- rosters change often."""
@@ -121,7 +130,9 @@ class DutyRoster:
 
         hits: list[dict[str, Any]] = []
         for entry in self._entries:
-            if not self._in_window(moment, entry):
+            own = zone(entry.get("timezone"))
+            local = safe_datetime(timestamp, own) if own is not None else moment
+            if local is None or not self._in_window(local, entry):
                 continue
             cams = entry.get("cameras")
             if cams and camera and camera not in cams:

@@ -338,7 +338,7 @@ async def test_after_real_the_owner_can_say_what_was_wrong(system):
     # A reply to anything else is not a note.
     state.push_message(CHAT, "hello", reply_to=state.sent[0]["message_id"])
     await sys_.bot.poll_once()
-    assert "later version" in state.sent[-1]["text"]
+    assert "Questions need a chat model" in state.sent[-1]["text"]  # no chat model in this test
     assert sys_.store.query("SELECT note FROM corrections")[0]["note"] == "waving both arms at the camera"
 
 
@@ -1010,3 +1010,66 @@ async def test_setup_asks_the_room_of_each_camera_and_rooms_apply_at_once(home, 
     await settle(sys_)
     assert len(_cards(state)) == sent + 1, "the running service uses the rooms at once"
     assert "Bedroom (webcam + laptopcam)" in state.edits[-1]["text"]
+
+
+async def test_a_room_card_takes_new_events_for_five_minutes_only(system):
+    """B-028: someone staying in the room kept one card open, and a new
+    incident there only edited it (Telegram doesn't notify edits)."""
+    sys_, state = system
+    _in_garden(sys_)
+    await sys_.pipeline.handle(_person("rev-a", "cam_yard"))
+    staying = _person("rev-b", "cam_drive", after_s=5)
+    staying.end_time = None  # still going
+    await sys_.pipeline.handle(staying)
+    await sys_.pipeline.handle(_person("rev-c", "cam_yard", after_s=400))
+    await settle(sys_)
+    assert len(_cards(state)) == 2 and sys_.store.card_members("rev-a", "telegram") == ["rev-b"]
+
+
+async def test_an_event_after_the_owner_answered_the_card_gets_its_own(system):
+    sys_, state = system
+    _in_garden(sys_)
+    await sys_.pipeline.handle(_person("rev-a", "cam_yard"))
+    await settle(sys_)
+    await press(sys_, state, "fb:ok:rev-a")
+    await sys_.pipeline.handle(_person("rev-b", "cam_drive", after_s=10))
+    await settle(sys_)
+    assert len(_cards(state)) == 2 and sys_.store.card_members("rev-a", "telegram") == []
+
+
+async def test_an_event_more_serious_than_its_room_card_gets_its_own(system):
+    sys_, state = system
+    _in_garden(sys_)
+    await sys_.pipeline.handle(_person("rev-cat", "cam_drive", label="cat"))  # routine
+    await sys_.pipeline.handle(_person("rev-a", "cam_yard", after_s=3))
+    await settle(sys_)
+    (card,) = _cards(state)
+    assert sys_.store.card_members("rev-a", "telegram") == ["rev-cat"]
+
+    # The card was later judged routine (an investigation, say); then the
+    # other camera's event turns into an alert: that must buzz.
+    downgraded = Decision(review_id="rev-a", disposition=Disposition.DOWNGRADED, severity=Severity.DETECTION,
+                          confidence=0.9, rationale="routine", stage=Stage.INVESTIGATED)
+    sys_.store.record_decision(downgraded.to_dict())
+    alert = Decision(review_id="rev-cat", disposition=Disposition.ALERTED, severity=Severity.ALERT,
+                     confidence=0.9, rationale="it was a person after all", stage=Stage.INVESTIGATED)
+    sys_.store.record_decision(alert.to_dict())
+    await sys_.notifier.process(_person("rev-cat", "cam_drive", label="cat"), alert)
+    assert len(_cards(state)) == 2 and sys_.store.card_members("rev-a", "telegram") == []
+    assert "Also cam_drive" not in state.edits[-1]["text"], "the old card no longer lists it"
+
+
+async def test_a_photo_for_the_face_library_asks_which_camera_takes_it(system, nvr_state):
+    """Each camera recognizes a resident best from a photo of its own angle
+    (live: laptopcam raised unknown-face alerts until it had one)."""
+    sys_, state = system
+    state.push_button(CHAT, "su:face:alex", message_id=1)
+    await sys_.bot.poll_once()
+    asked = state.sent[-1]
+    assert "Which camera should take the photo of alex?" in asked["text"]
+    assert state.buttons(asked) == ["su:face:alex:0", "su:face:alex:1", "su:face:alex:2"]
+    state.push_button(CHAT, "su:face:alex:1", message_id=asked["message_id"])
+    await sys_.bot.poll_once()
+    capture = state.sent[-1]
+    assert capture["method"] == "sendPhoto" and "frame from cam_drive" in capture["text"]
+    assert nvr_state.faces == {}, "nothing is added before ✅ Add"

@@ -113,6 +113,9 @@ class AlertContext:
 
 # The screener's tag for "this resembles what the owner marked real" (D-055).
 OWNER_REAL_TAG = "owner_real"
+# ...and for "this is what the owner asked to be told about" (a watch, D-065):
+# "owner_watch_<n>" names the n-th watch listed in the prompt.
+OWNER_WATCH_TAG = "owner_watch"
 
 
 @dataclass(slots=True)
@@ -136,6 +139,11 @@ class ScreenResult:
     def owner_real(self) -> bool:
         """The screener saw what the owner marked real (D-055)."""
         return OWNER_REAL_TAG in {t.lower() for t in self.tags}
+
+    @property
+    def owner_watch(self) -> bool:
+        """The screener saw what the owner asked to be told about (D-065)."""
+        return any(t.lower().startswith(OWNER_WATCH_TAG) for t in self.tags)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)

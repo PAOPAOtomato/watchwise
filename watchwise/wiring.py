@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from watchwise.chat.proposals import ProposalBook
+from watchwise.chat.service import ChatService
 from watchwise.config import WatchwiseConfig
 from watchwise.decision import DecisionPolicy
 from watchwise.llm.base import ChatModel
@@ -22,6 +24,7 @@ from watchwise.memory.feedback import FeedbackLoop
 from watchwise.memory.long_term import PatternLibrary
 from watchwise.memory.store import Store
 from watchwise.memory.vectors import build_embedder
+from watchwise.memory.watches import WatchBook
 from watchwise.nvr.client import NVRClient
 from watchwise.nvr.source import AlertSource, MQTTAlertSource
 from watchwise.pipeline import FaceFeed, Pipeline
@@ -153,10 +156,13 @@ def build_system(
     telegram_api: Any = None,
     mqtt_publisher: Any = None,
     config_path: str | Path | None = None,
+    chat_model: ChatModel | None = None,
 ) -> System:
     """Compose the service. ``config_path`` is the file ``config`` came from;
-    /setup in Telegram writes the owner's answers there."""
+    /setup in Telegram writes the owner's answers there. ``chat_model``
+    replaces the ``chat`` role's model (tests)."""
     store = Store(config.memory.db_path)
+    watches = WatchBook(store)
     embedder = build_embedder(config.memory.embedding_backend, config.memory.embedding_dim)
     patterns = PatternLibrary(store, embedder, config.memory.pattern_half_life_days)
     feedback = FeedbackLoop(store, patterns)
@@ -186,7 +192,8 @@ def build_system(
     )
     # The owner's /setup answers: these very objects, updated in place by it.
     screener = Screener(
-        gate, sampler, vlm, screening, patterns, arming=arming, cameras=config.cameras, alerts=config.alerts
+        gate, sampler, vlm, screening, patterns, arming=arming, cameras=config.cameras, alerts=config.alerts,
+        watches=watches,
     )
     policy = DecisionPolicy(config.decision)
 
@@ -220,11 +227,21 @@ def build_system(
         closers.append(webhook.aclose)
 
     face_feed = FaceFeed()
+    proposals = ProposalBook(
+        store,
+        roster_path=Path(config.duty_roster.path) if config.duty_roster.path else None,
+        arming=arming,
+        watches=watches,
+    )
+    chat = _build_chat(config, chat_model, store=store, nvr=nvr, proposals=proposals, watches=watches,
+                       arming=arming, roster=roster)
+    if chat is not None:
+        closers.append(chat.model.aclose)
     notifier = bot = None
     if notify.telegram.enabled:
         notifier, bot, api = _build_telegram(
             config, store, nvr, feedback, patterns, investigations, memory_sink, telegram_api,
-            arming=arming, face_feed=face_feed, config_path=config_path,
+            arming=arming, face_feed=face_feed, config_path=config_path, chat=chat, proposals=proposals,
         )
         if notifier is not None:
             sinks.append(notifier)
@@ -295,6 +312,8 @@ def _build_telegram(
     arming: ArmingState | None = None,
     face_feed: FaceFeed | None = None,
     config_path: str | Path | None = None,
+    chat: ChatService | None = None,
+    proposals: ProposalBook | None = None,
 ) -> tuple[Any, Any, Any]:
     """Notifier + bot, or (None, None, None) if no token is configured.
 
@@ -342,8 +361,28 @@ def _build_telegram(
         face_feed=face_feed,
         send_images=settings.send_images,
     )
-    bot = TelegramBot(api, settings, handler, notifier, enroller=enroller, setup=setup, arming=arming)
+    bot = TelegramBot(
+        api, settings, handler, notifier, enroller=enroller, setup=setup, arming=arming, chat=chat, proposals=proposals
+    )
     return notifier, bot, api
+
+
+def _build_chat(config: WatchwiseConfig, model: ChatModel | None, **parts: Any) -> ChatService | None:
+    """"Ask Watchwise" on the ``chat`` role's model (D-065), or None when no
+    real model is configured: questions then get a short explanation."""
+    if model is None:
+        endpoint = config.endpoint("chat")
+        if endpoint is None or endpoint.provider == "stub":
+            return None
+        from watchwise.llm.registry import build_chat_model
+
+        try:
+            model = build_chat_model(endpoint)
+        except Exception as exc:
+            logger.warning("chat model unavailable (%s); questions in Telegram won't be answered", exc)
+            return None
+    logger.info("Ask Watchwise: questions in Telegram go to %s", model.describe())
+    return ChatService(model, config=config, **parts)
 
 
 def _arming_path(config: WatchwiseConfig) -> Path:

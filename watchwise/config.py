@@ -297,6 +297,9 @@ class RoomSettings(BaseModel):
     # Two cameras' events in one room are one incident (one card) when they
     # overlap in time, or one starts within this many seconds of the other's end.
     merge_window_s: float = Field(default=30.0, ge=0.0)
+    # A card takes a room's events for at most this long after its first
+    # one; later events open a new card (B-028).
+    max_incident_s: float = Field(default=300.0, ge=0.0)
 
 
 def room_key(cameras: dict[str, CameraSettings], camera: str) -> str:

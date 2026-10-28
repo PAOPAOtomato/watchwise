@@ -40,11 +40,11 @@ from watchwise.setup.home import (
     SetupError,
     apply_home,
     clean_note,
-    clean_room,
     clean_rules,
     plan_home,
     read_config,
     restore,
+    room_from_reply,
     split_names,
     update_live,
 )
@@ -80,7 +80,8 @@ class Reply:
     photo: bytes | None = None
     edit: bool = False  # replace the message whose button was pressed
     check: bool = False  # then run check() and send its result
-    face: str | None = None  # then start the /face flow for this name
+    face: str | None = None  # then start the /face flow for this name...
+    face_camera: str | None = None  # ...with this camera's frame
 
 
 @dataclass
@@ -205,7 +206,7 @@ class SetupChat:
             return [Reply(f"📷 Noted for {esc(name)}: “{esc(note)}”"), *(await self._after_note(session))]
         if session.step == "room":
             name = session.cameras[session.camera]
-            room = clean_room(text)
+            room = room_from_reply(text)
             if not room:
                 return [Reply("Type the room's name, or tap a button.")]
             session.answers.rooms[name] = room
@@ -244,7 +245,7 @@ class SetupChat:
         step = parts[1] if len(parts) > 1 else ""
         arg = parts[2] if len(parts) > 2 else ""
         if step == "face" and arg:
-            return [Reply("", face=arg)]
+            return await self._face_photo(arg, parts[3] if len(parts) > 3 else None)
         if step == "check":
             return self.check_reply(chat_id)
         if step == "undo":
@@ -368,14 +369,14 @@ class SetupChat:
         index = session.camera
         name = session.cameras[index]
         known: list[str] = []
-        for room in (clean_room(r) for r in session.answers.rooms.values()):
+        for room in (room_from_reply(r) for r in session.answers.rooms.values()):
             if room and room.lower() not in {k.lower() for k in known}:
                 known.append(room)
         session.room_choices = known
         text = (
             f"Which room is <b>{esc(name)}</b> in? Cameras in one room share one card per "
-            "incident, and a tap on it teaches all of them. Tap a room or type its name, "
-            "e.g. “bedroom”."
+            "incident, and a tap on it teaches all of them. Tap a room, or type just its "
+            "name, e.g. “bedroom”."
         )
         current = session.answers.rooms.get(name, "")
         if current:
@@ -551,6 +552,26 @@ class SetupChat:
             + "\nThen tap 👋 and walk past a camera: I'll tell you whether Frigate recognized you.",
             buttons,
         )
+
+    async def _face_photo(self, name: str, camera: str | None) -> list[Reply]:
+        """📸: with several cameras, ask which one takes the photo. A
+        resident is recognized best by a camera that has a photo from its
+        own angle (live: laptopcam knew Ray only after one)."""
+        try:
+            cameras = await self.nvr.cameras()
+        except Exception:
+            cameras = []
+        if camera is not None and camera.isdigit() and int(camera) < len(cameras):
+            return [Reply("", face=name, face_camera=cameras[int(camera)])]
+        if len(cameras) <= 1:
+            return [Reply("", face=name)]
+        tiles = [(f"📷 {c}", f"su:face:{name}:{i}") for i, c in enumerate(cameras)]
+        return [Reply(
+            f"📸 Which camera should take the photo of {esc(name)}? Face that camera, alone "
+            "and in good light, then tap it. Each camera recognizes you best with a photo "
+            "from its own angle.",
+            [tiles[i : i + 2] for i in range(0, len(tiles), 2)],
+        )]
 
     def check_reply(self, chat_id: int) -> list[Reply]:
         if self.face_feed is None:

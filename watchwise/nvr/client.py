@@ -83,8 +83,10 @@ class NVRClient:
         return await self._get_json("/stats")
 
     async def cameras(self) -> list[str]:
+        """The NVR's cameras, without those switched off in its config."""
         cfg = await self.config()
-        return sorted((cfg.get("cameras") or {}).keys())
+        cameras = cfg.get("cameras") or {}
+        return sorted(name for name, cam in cameras.items() if (cam or {}).get("enabled", True) is not False)
 
     # ---------------- reviews ----------------
 

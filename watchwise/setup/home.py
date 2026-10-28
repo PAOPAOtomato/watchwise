@@ -115,6 +115,18 @@ def clean_room(text: str) -> str:
     return " ".join(str(text).split())[:ROOM_LIMIT]
 
 
+def room_from_reply(text: str) -> str:
+    """The room in a typed answer (B-027: live, "iphone_a is in living room"
+    was kept whole): "<camera> is in the kitchen", "it's in my bedroom",
+    "this is my living room" and "in the hall" all give just the room."""
+    room = " ".join(str(text).split()).rstrip(".!")
+    room = re.sub(r"^.*?\b(?:is|it's|its)\s+(?:in|at|inside)\s+", "", room, flags=re.I)
+    room = re.sub(r"^(?:this|that|it)(?:'s|\s+is)\s+", "", room, flags=re.I)
+    room = re.sub(r"^(?:in|at|inside)\s+", "", room, flags=re.I)
+    room = re.sub(r"^(?:the|my|our)\s+", "", room, flags=re.I)
+    return clean_room(room)
+
+
 def clean_rules(lines: list[str]) -> list[str]:
     rules: list[str] = []
     for line in lines:

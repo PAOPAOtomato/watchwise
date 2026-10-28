@@ -154,6 +154,8 @@ def build_fake_telegram(state: FakeTelegramState | None = None) -> tuple[FastAPI
         if method == "answerCallbackQuery":
             state.answers.append(params)
             return ok(True)
+        if method == "sendChatAction":
+            return ok(True)
         if method == "getUpdates":
             offset = int(params.get("offset") or 0)
             pending = [u for u in state.updates if u["update_id"] >= offset]
