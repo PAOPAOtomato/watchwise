@@ -13,16 +13,17 @@ decisions backed by evidence, and an agent that learns from human corrections.
 Select illustrated camera events, inspect their evidence, and see how a correction
 changes a later matching event. The website uses a deterministic browser scenario;
 its counts and confidence values belong to that story. No cameras or API keys are
-needed. Its question panel uses authored answers; see [Interfaces](#interfaces)
-for integrations available with an installation.
+needed. Its question panel uses authored answers; with an installation, you ask
+in Telegram (see [Ask Watchwise](#ask-watchwise)).
 
 Cameras are cheap; attention isn't. Watchwise sits on top of
 [Frigate](https://frigate.video), the open-source network video recorder (NVR),
 and decides which events need a human. A model-free gate handles configured rules
 and trusted recurring patterns, a vision model screens unresolved events, and a
 tool-calling agent investigates ambiguous cases. Models run locally by default;
-cloud providers are optional. You can inspect the decision history and teach the
-memory through Telegram or the feedback API.
+cloud providers are optional. In Telegram you get alert cards that explain
+themselves, teach the memory with one tap, and ask questions about what happened;
+the feedback API offers the same teaching.
 
 ## Try the routing simulation (no cameras, no GPU, no API key)
 
@@ -70,9 +71,9 @@ watchwise serve      # connect to Frigate and process its review events
 ```
 
 Use `--config <path>` on `check`, `serve`, and the Telegram commands when using a
-non-default configuration. `check` probes screening and tool calling; a successful
-probe is not a camera-accuracy test. A configured `chat` role can be probed even
-though the installed conversational interface is not implemented.
+non-default configuration; `/setup` in Telegram saves its answers to the file
+`serve` was started with. `check` probes screening, tool calling, and the `chat`
+role that answers questions; a successful probe is not a camera-accuracy test.
 
 `doctor` detects NVIDIA, AMD, Apple Silicon, or CPU hardware; probes local model
 servers and Frigate/MQTT reachability; and checks API-key presence without
@@ -81,20 +82,22 @@ printing values. Its profiles are starting points, not hardware certifications:
 | Profile | Intended starting point | Models | Model data sent to a cloud provider |
 |---|---|---|---|
 | `cpu-local` | no usable GPU | `qwen3-vl:4b` via Ollama for all configured roles | none with a local server |
-| `cpu-hybrid` | CPU screening plus cloud investigation | local `qwen3-vl:2b`; cloud reasoning model | text and tool results, not screening images |
+| `cpu-hybrid` | CPU screening plus cloud investigation and chat | local `qwen3-vl:2b`; cloud reasoning model | text and tool results, including chat questions; not screening images |
 | `nvidia` | NVIDIA, roughly 8–15 GB | `qwen3-vl:8b-instruct` for all configured roles | none with a local server |
-| `nvidia-16gb` | 16 GB class (selected from 15 GB reported), with the caveat below | `qwen3-vl:8b-instruct` screening, `qwen3:14b` reasoning | none with a local server |
+| `nvidia-16gb` | 16 GB class (selected from 15 GB reported) | `qwen3-vl:8b-instruct` for all configured roles, 16k context | none with a local server |
 | `apple-silicon` | Mac, roughly 16 GB+ unified memory | `qwen3-vl:8b-instruct` via native Ollama | none with a local server |
 | `apple-silicon-8gb` | Mac, roughly 8 GB unified memory | `qwen3-vl:4b` | none with a local server |
 | `amd-rocm` | supported AMD GPU on Linux | `qwen3-vl:8b-instruct` via Ollama ROCm | none with a local server |
-| `cloud` | no local model server | cloud model for all configured roles | screening images, text, and tool results |
+| `cloud` | no local model server | cloud model for all configured roles | screening images, text, tool results, and chat questions |
 | `demo` | routing simulation | deterministic stand-ins | none |
 
-**Allow memory headroom.** The configured screener and investigator in
-`nvidia-16gb` can together exceed 16 GB at their configured context lengths. On a
-smaller GPU, use a smaller/single model configuration and validate it on that
-machine; do not assume both models can stay loaded. CPU screening can also be
-slow or exhaust its output budget.
+**One model per machine.** The GPU and Apple Silicon profiles use one vision
+model for every role (screening, investigation, chat), so only one model has to
+stay loaded; validate its context length and memory on your machine. These
+profiles also let the model check learned routines (`gate.memory_mode:
+model_checked`) and write whole-event summaries. The CPU profiles keep the
+model-free gate, write no summaries, and can be slow or exhaust their output
+budget.
 
 Profiles live in [`watchwise/hw/profiles.yml`](watchwise/hw/profiles.yml).
 Any role can point at a different model or server. Re-running `init` shows a diff
@@ -140,23 +143,48 @@ Replace stream placeholders before starting.
    copy the token it gives you.
 2. Put it in `.env` as `WATCHWISE_TELEGRAM_BOT_TOKEN=<token>`.
 3. Run `watchwise telegram link`, then send `/start` to your bot. Only linked
-   chats receive cards or can use their buttons.
+   chats receive cards, use their buttons, or ask questions.
 4. Run `watchwise telegram test` to send a sample card, then `watchwise serve`
-   for real events. Restart a running service after changing its configuration.
+   for real events. Restart a running service after editing its configuration by
+   hand; changes made in Telegram apply at once.
+
+Then send `/setup` to the bot. It asks what each camera looks at (and, with
+several cameras, which room it is in), who lives here, what should always alert
+you, and what to assume while no arming state is set. It shows the plan and
+writes it to your configuration only when you tap ✅ Apply, after backing up the
+file; ↩️ Undo puts the old file back. The running service uses the answers at
+once. It then offers to add face photos and a recognition check: walk past a
+camera, and it tells you whether Frigate recognized you.
+
+| Command | What it does |
+|---|---|
+| `/setup` | describe your cameras, rooms, residents, always-alert rules, and arming default |
+| `/arm` | show or switch arming: Home, Away, Night, Off (also `/arm away`) |
+| `/face <name> [camera]` | add a photo to Frigate's Face Library from what the camera sees now, after you confirm |
+| `/new` | start a new conversation with Ask Watchwise |
+| `/cancel` | stop a `/setup` in progress |
+| `/help` | the buttons and commands |
 
 Cards show a snapshot, camera and time, reason, confidence, and decision stage.
 They update in place as screening or investigation finishes. Confidence is a
-model or policy score, not a measured probability of correctness.
+model or policy score, not a measured probability of correctness. Cameras in the
+same room share one card per incident: another camera's event in that room edits
+the card instead of buzzing again. A card takes a room's events for five minutes
+from its first one; a later event, a more serious one, or one after you answered
+the card gets its own card.
 
 | Button | What it does |
 |---|---|
 | ✅ Expected | records benign feedback and reinforces a pattern; holding back later events also requires the correction, similarity, and trust thresholds below |
-| 🚨 Alert me | records suspicious feedback (you want alerts like this) and reduces trust in an influenced false-alarm pattern |
+| 🚨 Alert me | records suspicious feedback (you want alerts like this) and reduces trust in an influenced false-alarm pattern, then asks “What was wrong?”: your reply becomes the example the vision model looks for |
 | 🔍 Look closer | requests a full investigation when one has not already run |
-| 🔇 Snooze | mutes that camera's cards for an hour by default; processing and recording continue |
+| 🔇 Snooze | mutes the cards of that camera and its room for an hour by default; processing and recording continue |
 | ❓ Why | explains the stored decision, matched memory, and available investigation evidence |
 | ↩️ Undo | reverses the correction and its count/trust effects; merged descriptive text can remain |
 | ▶️ Clip | opens Frigate's review page when `nvr.web_url` is configured |
+
+On a room card, ✅, 🚨 and ↩️ act on every camera's event on the card, so teaching
+one view teaches the other.
 
 Set `nvr.web_url` (or `FRIGATE_WEB_URL` in generated configurations) to the
 Frigate web address your phone can reach. This is separate from `nvr.base_url`,
@@ -164,20 +192,48 @@ which serves backend API requests. The phone still needs network access and any
 Frigate login; a link does not proxy video or bypass authentication.
 
 Telegram relays card text, the Clip URL when configured, and snapshots unless
-`notify.telegram.send_images` is `false`. Long polling needs no incoming public
-endpoint. By default, only `alerted` and `escalated_human` decisions start cards;
-a card already sent while analyzing can later update to a downgraded result.
+`notify.telegram.send_images` is `false`, as well as your questions, the answers,
+and what you type in `/setup`. Long polling needs no incoming public endpoint. By
+default, only `alerted` and `escalated_human` decisions start cards; a card
+already sent while analyzing can later update to a downgraded result.
+
+### Ask Watchwise
+
+Send the bot an ordinary message, or reply to an alert card to ask about that
+event:
+
+* “Anything in the kitchen today?”: a short summary from Watchwise's records,
+  with photos when useful.
+* “Why didn't you tell me about the 21:31 one?”: the decision, the stage that
+  made it, and the evidence.
+* “The cleaner comes Thursdays 1–4 pm”: a proposed duty-roster rule.
+* “Tell me when the parcel is picked up”: a proposed watch.
+
+The `chat` role's model answers by looking things up: Watchwise's own records
+(every event it judged, with its verdict and summary) and Frigate's event list.
+It cannot change anything itself. A duty-roster rule, an arming switch, muting a
+camera or room, or a watch arrives as a proposal with ✅ Confirm and ✖️ Cancel;
+only your tap applies it. A roster rule is appended to the roster file, in your
+local time zone, after a backup. Unconfirmed proposals expire after an hour.
+
+A watch is checked once per Frigate event on the cameras it names, when the
+event ends: the vision model is asked, on a few frames spread across the event,
+whether they clearly show what you asked for. A match alerts once and ends the
+watch; otherwise it runs for the time you chose (24 hours by default, at most a
+week). Watches include residents Frigate recognizes.
 
 ## How it works
 
 ```text
-RTSP -> [ Frigate ] -> motion / object detection -> review event
+RTSP -> [ Frigate ] -> motion / object / face detection -> review event
                             | MQTT <prefix>/reviews
                             v
+FACES         a resident Frigate recognizes while you're home: held back
 GATE          configured rules, dedupe, trusted recurring patterns
                             | unresolved
                             v
-TIER 2        vision model: benign / suspicious / uncertain + confidence
+TIER 2        vision model: benign / suspicious / uncertain + confidence,
+              told the arming state, camera notes, and your always-alert rules
                             | unresolved or uncertain
                             v
 TIER 3        asynchronous tool-calling investigation:
@@ -185,7 +241,9 @@ TIER 3        asynchronous tool-calling investigation:
                             v
 POLICY        suppress / downgrade / alert / escalate
                             v
-HUMAN REVIEW  corrections -> pattern memory -> later matching decisions
+EVENT END     whole-event summary and watches: can raise, never lower
+                            v
+HUMAN REVIEW  one card per room -> corrections -> memory; questions in chat
 ```
 
 * **Selective model use.** Events resolved by the gate need no model call;
@@ -195,6 +253,20 @@ HUMAN REVIEW  corrections -> pattern memory -> later matching decisions
   and night modes use a zero-second budget with a 0.5-second dispatch floor.
   These are scheduling settings, not delivery guarantees. A later report
   re-screens only if labels or zones changed.
+* **Arming-aware.** The vision model is told the arming state. While armed away
+  or for the night, a person in view can't be dismissed except by a duty-roster
+  rule or a recognized resident; it alerts. Without an arming state, Watchwise
+  assumes `armed_away`; switch with `/arm` or set the default in `/setup`.
+* **Faces.** With Frigate's face recognition on and residents listed in
+  `faces.household` (by `/setup`), a resident Frigate names while you're home is
+  held back with no model call. A watch, or an always-alert rule worded “anyone”
+  or “any person”, is still asked about them once when the event ends. A face
+  Frigate saw but matched to nobody raises the event when it ends. Recognition
+  runs in Frigate; a recognized name appears in card text.
+* **Rooms.** `cameras.<name>.room` groups cameras into rooms: one card per
+  incident per room, a tap teaches every camera on the card, and an
+  investigation reads another camera in the same room as another angle, not as
+  movement through the property.
 * **Model warm-up.** `service.warm_up_models` loads local models at startup and
   keeps the screener warm. Startup and memory pressure can still cause delays.
 * **Failure handling.** Screening errors, timeouts, refusals, and unreadable
@@ -204,9 +276,10 @@ HUMAN REVIEW  corrections -> pattern memory -> later matching decisions
 * **Auditable decisions.** Held-back events remain recorded. Decisions include
   reasons, confidence scores, matched memory, and investigation traces when an
   investigation ran. Patterns retain correction and agreement/disagreement counts.
-* **Read-only Frigate integration.** Watchwise reads Frigate's HTTP API and MQTT,
-  writes its own database, and exposes its own API. Removing it leaves Frigate's
-  recordings and configuration intact.
+* **Frigate stays in charge of video.** Watchwise reads Frigate's HTTP API and
+  MQTT, writes its own database, and exposes its own API. Its one write to
+  Frigate is `/face`, which adds a photo to the Face Library after you confirm.
+  Removing Watchwise leaves Frigate's recordings and configuration intact.
 
 ### Learning thresholds and safeguards
 
@@ -214,6 +287,8 @@ By default, a false-alarm pattern needs at least **3 corrections**, matching
 similarity **0.86**, and trust **0.70** to resolve an event at the gate. Trust is
 `(agreements + 1) / (agreements + disagreements + 2)`; correction count alone is
 not enough. 🚨 Alert me feedback can lower trust, and Undo reverses its recorded effects.
+A 🚨 Alert me on a kind of event (camera, labels, zones) also stops memory from
+holding back that kind for 30 days (`gate.real_veto_days`).
 
 The gate's confidence is capped at `0.95` and otherwise equals trust × similarity.
 The policy fully suppresses a learned match only at confidence `0.85` or above;
@@ -221,20 +296,26 @@ a lower qualifying score downgrades it to a detection. Both normally avoid a new
 phone card while retaining the event for inspection. Configured always-alert
 labels take precedence over memory and deduplication.
 
-Patterns are keyed by camera, object labels, and zones. The gate does not inspect
-a frame, recognize an identity, or learn a person's schedule. A correction does
-not edit the duty roster. Age decay affects search ranking; it does **not** expire
-a pattern or independently remove its authority to hold back alerts.
+Patterns are keyed by camera, object labels, and zones. On the CPU and cloud
+profiles the gate holds back trusted routines itself, without inspecting a frame,
+so it cannot tell behaviours apart. On the GPU and Apple Silicon profiles
+(`gate.memory_mode: model_checked`) it never does: the vision model compares each
+event with descriptions of what you marked expected or alert-worthy, in your own
+words when you answered “What was wrong?”. A correction does not edit the duty
+roster; a roster rule comes from the chat, with your confirmation. Age decay
+affects search ranking; it does **not** expire a pattern or independently remove
+its authority to hold back alerts.
 
 ### Whole-event descriptions
 
-When Frigate supplies a GenAI review summary, Watchwise can attach “What happened”
-to the card and decision history. With `decision.summary_can_raise: true` (the
-default), a suspicious or critical summary raises a held-back event to an alert;
-it cannot lower a decision. Frigate's image inputs must fit the chosen model's
-context window; longer events can exceed that limit. The documented installation
-relies on Frigate for these summaries, and an early verdict may describe only a
-snapshot.
+When an event ends, Watchwise asks the vision model what happened across all of
+it, from frames spread over the event (`vlm.summary_frames`; off on the CPU
+profiles), and attaches “What happened” to the card and decision history. A GenAI
+review summary sent by Frigate is used the same way. With
+`decision.summary_can_raise: true` (the default), a suspicious or critical
+summary raises a held-back event to an alert; it cannot lower a decision. The
+summary arrives after Frigate closes the review, some seconds after the activity
+stops; an early verdict may describe only a snapshot.
 
 ### Model layer
 
@@ -273,38 +354,8 @@ chosen destination, such as a Home Assistant integration.
 
 Forensic tools are also exposed through **MCP**: in-process to the agent and as
 a stdio server (`watchwise-mcp`, requiring `pip install -e ".[mcp]"`) for Claude
-Desktop, Claude Code, Cursor, or another MCP client. These tools do not constitute
-an installed Watchwise chat interface.
-
-## Known limitations
-
-These apply to the documented installation. See [verification notes](docs/verification.md)
-for the source version and test scope.
-
-* Stand-in models in `watchwise demo` cannot read a real scene. The routing
-  simulation does not measure visual accuracy, multi-camera capacity, or
-  long-term reliability.
-* Memory can hold back a genuine event with the same signature as an expected one.
-  Different gestures or behaviors are not separated, and 🚨 Alert me feedback is not a
-  hard veto on later suppression. Trust thresholds, review records, and Undo help
-  with correction but do not eliminate this risk.
-* The screener is not told the arming state. An ordinary-looking indoor person
-  can be judged benign even when armed away. Arming affects provisional timing
-  and is available to investigation tools; it does not currently fix that prompt.
-  Without an arming file, the default is `armed_away`.
-* Early screening may use a single snapshot. A later end report with unchanged
-  labels/zones does not trigger another screen. Whole-event summaries are not
-  guaranteed, and camera placement or blur can affect judgments.
-* Investigation can be slow on real models. Warm-up helps avoid cold starts but
-  does not guarantee model residency or response time; the two-model
-  `nvidia-16gb` configuration can exceed its nominal memory class.
-* CPU screening and thinking models can exhaust their time or output budget.
-  `watchwise check --role screener` helps diagnose this on the chosen machine.
-* Telegram delivery needs network access. Recording links additionally require
-  the phone to reach and authenticate to Frigate.
-* Installed chat, automatic schedule editing, and Watchwise-generated whole-event
-  summaries are not part of the documented installation. The website's question
-  panel sends no input to a model.
+Desktop, Claude Code, Cursor, or another MCP client. Ask Watchwise in Telegram
+uses its own tool set; it has no HTTP endpoint.
 
 ## Development
 
@@ -316,7 +367,9 @@ pytest -q
 The automated Python suite uses fake Frigate, model, and Telegram Bot API servers
 (real ASGI apps), plus hardware-detection fixtures. It requires no GPU, cameras,
 bot, or API keys. Tests cover routing, feedback effects and Undo, notification
-updates, warm-up and timeout behavior, recording URLs, and summary escalation.
+updates, rooms, the `/setup` conversation and its file changes, chat answers and
+confirmed changes (with a scripted model), warm-up and timeout behavior,
+recording URLs, and summary escalation.
 These checks exercise application behavior; they do not measure visual accuracy.
 
 The frontend is isolated from the Python application:
@@ -334,7 +387,7 @@ browser checks, and maintenance of the existing Vercel deployment.
 
 ```text
 watchwise/    Python package: tier2/, tier3/, tools/, memory/, llm/, hw/,
-              setup/, notify/, cli.py
+              setup/, notify/, chat/, cli.py
 tests/        Python tests by layer
 deploy/       Docker Compose base, hardware overlays, Frigate template
 docs/         hardware and model guide
