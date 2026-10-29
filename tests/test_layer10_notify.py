@@ -613,7 +613,8 @@ async def test_face_explains_what_it_needs(system, nvr_state):
     sys_, state = system
     assert "Which camera?" in (await _say(sys_, state, "/face alex"))["text"]
     assert "simple name" in (await _say(sys_, state, "/face al-ex! cam_door"))["text"]
-    assert "Send /face &lt;name&gt;" in (await _say(sys_, state, "/face"))["text"]
+    status = (await _say(sys_, state, "/face"))["text"]
+    assert "one library for all cameras" in status and "Add photos with /face" in status
 
     nvr_state.face_in_view = False
     asked = await _say(sys_, state, "/face alex cam_door")
@@ -1060,16 +1061,71 @@ async def test_an_event_more_serious_than_its_room_card_gets_its_own(system):
 
 
 async def test_a_photo_for_the_face_library_asks_which_camera_takes_it(system, nvr_state):
-    """Each camera recognizes a resident best from a photo of its own angle
-    (live: laptopcam raised unknown-face alerts until it had one)."""
+    """Any camera's photo enrolls a resident for every camera (one Face
+    Library); the owner picks the camera they can face closely."""
     sys_, state = system
     state.push_button(CHAT, "su:face:alex", message_id=1)
     await sys_.bot.poll_once()
     asked = state.sent[-1]
     assert "Which camera should take the photo of alex?" in asked["text"]
+    assert "enrolls you for every camera" in asked["text"] and "own angle" not in asked["text"]
     assert state.buttons(asked) == ["su:face:alex:0", "su:face:alex:1", "su:face:alex:2"]
     state.push_button(CHAT, "su:face:alex:1", message_id=asked["message_id"])
     await sys_.bot.poll_once()
     capture = state.sent[-1]
     assert capture["method"] == "sendPhoto" and "frame from cam_drive" in capture["text"]
     assert nvr_state.faces == {}, "nothing is added before ✅ Add"
+
+
+# ---------------- faces from the camera that missed (D-071) ----------------
+
+
+async def test_a_face_nobody_matched_can_be_taught_from_that_cards_own_crop(system, nvr_state):
+    """One Face Library serves every camera; the camera that missed teaches it
+    with the crop Frigate tried there. Nothing changes before ✅ Add."""
+    sys_, state = system
+    sys_.config.faces.household[:] = ["alex"]
+    nvr_state.add_review(review_id="unk-1", camera="cam_door", start_time=NIGHT_TS, detections=["1793000000.1-abc"])
+    nvr_state.face_attempts.update({
+        "1793000000.1-abc-1793000001.0-unknown-0.42.webp": b"small",
+        "1793000000.1-abc-1793000002.0-unknown-0.61.webp": b"the larger crop",
+        "1793000099.9-zzz-1793000100.0-alex-0.95.webp": b"another event, much larger than both",
+    })
+    ctx = _person("unk-1", "cam_door")
+    raised = Decision(review_id="unk-1", disposition=Disposition.ALERTED, severity=Severity.ALERT, confidence=0.0,
+                      rationale="a face Frigate's face recognition could not match to anyone it knows", stage=Stage.FACE)
+    sys_.store.upsert_alert({**ctx.to_dict(), "signature": ctx.signature()}, Stage.FACE.value)
+    sys_.store.record_decision(raised.to_dict())
+    await sys_.notifier.process(ctx, raised)
+    card = _cards(state)[-1]
+    assert "fc:who:alex:unk-1" in state.buttons(card)
+
+    state.push_button(CHAT, "fc:who:alex:unk-1", message_id=card["message_id"])
+    await sys_.bot.poll_once()
+    preview = state.sent[-1]
+    assert preview["method"] == "sendPhoto" and "Add this face from cam_door to alex" in preview["text"]
+    assert "matched nobody (score 0.61)" in preview["text"], "the largest crop of that event"
+    assert nvr_state.trained == [], "nothing changes before ✅ Add"
+
+    state.push_button(CHAT, state.buttons(preview)[0], message_id=preview["message_id"])
+    await sys_.bot.poll_once()
+    assert nvr_state.trained == [("alex", "1793000000.1-abc-1793000002.0-unknown-0.61.webp")]
+    assert "Added a face for alex" in state.sent[-1]["text"] and "every camera uses it" in state.sent[-1]["text"]
+
+    status = (await _say(sys_, state, "/face"))["text"]
+    assert "• alex: 1 photo(s); add 4+ more clear photos" in status
+
+
+async def test_only_a_face_nobody_matched_offers_the_resident_buttons(system, nvr_state):
+    sys_, state = system
+    sys_.config.faces.household[:] = ["alex"]
+    ctx = _person("plain-1", "cam_door")
+    plain = Decision(review_id="plain-1", disposition=Disposition.ALERTED, severity=Severity.ALERT, confidence=0.9,
+                     rationale="a person at the door at night", stage=Stage.SCREENED)
+    await sys_.notifier.process(ctx, plain)
+    assert not any(b.startswith("fc:who") for b in state.buttons(_cards(state)[-1]))
+
+    nvr_state.add_review(review_id="gone-1", camera="cam_door", start_time=NIGHT_TS, detections=["1793000000.5-old"])
+    state.push_button(CHAT, "fc:who:alex:gone-1", message_id=1)
+    await sys_.bot.poll_once()
+    assert "Frigate kept no face crop from this event" in state.sent[-1]["text"]

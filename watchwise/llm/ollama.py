@@ -96,6 +96,7 @@ class OllamaChat(ChatModel):
         messages: list[Message],
         *,
         tools: list[ToolSpec] | None = None,
+        tool_choice: str = "auto",
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> ChatResult:
@@ -111,7 +112,7 @@ class OllamaChat(ChatModel):
             "stream": False,
             "options": options,
         }
-        if tools:
+        if tools and tool_choice != "none":  # Ollama has no tool_choice
             body["tools"] = [
                 {
                     "type": "function",

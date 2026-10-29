@@ -1,6 +1,6 @@
-"""What the chat model may use (D-065): four lookups and four proposals.
+"""What the chat model may use (D-065): four lookups and five proposals.
 
-Kept to eight tools with short, summary-first results, because the chat
+Kept to nine tools with short, summary-first results, because the chat
 model may be a small local one. The lookups read Watchwise's own records
 (every event it judged, with its verdict and the "What happened" summary)
 and Frigate's event list. The ``propose_*`` tools change nothing: they store
@@ -19,6 +19,8 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+import yaml
 
 from watchwise.chat.proposals import Proposal, ProposalBook
 from watchwise.config import WatchwiseConfig, room_key
@@ -278,10 +280,55 @@ async def _propose_roster_rule(ctx: ChatContext, args: dict[str, Any]) -> dict[s
     where = ", ".join(cameras) if cameras else "every camera"
     summary = (
         f"Add to the duty roster: “{name}”, {' '.join(d.capitalize() for d in days)} {start}–{end} ({zone}), "
-        f"{', '.join(labels)} on {where}, expected: {expect}. Then a {labels[0]} there at those times "
-        "counts as expected, also while armed."
+        f"{', '.join(labels)} on {where}, expected: {expect}. Then the investigation is told a "
+        f"{labels[0]} there at those times is expected, so while armed it may call one routine "
+        "instead of asking you."
     )
     return _proposed(ctx, ctx.proposals.propose(ctx.conversation, "roster_rule", {"entry": entry}, summary))
+
+
+def _rule_text(entry: dict[str, Any]) -> str:
+    days = entry.get("days", "all")
+    when = "every day" if days == "all" else " ".join(str(d).capitalize() for d in days)
+    where = ", ".join(entry.get("cameras") or []) or "every camera"
+    expect = f" ({entry['expect']})" if entry.get("expect") else ""
+    return f"“{entry.get('name')}”, {when} {entry.get('start', '00:00')}–{entry.get('end', '23:59')} on {where}{expect}"
+
+
+def _same_name(a: Any, b: str) -> bool:
+    def key(text: Any) -> str:
+        return " ".join(re.sub(r"[_\-]+", " ", str(text)).lower().split())
+
+    return key(a) == key(b)
+
+
+async def _propose_roster_removal(ctx: ChatContext, args: dict[str, Any]) -> dict[str, Any]:
+    """D-070: any rule, by name; a name shared by several rules is narrowed
+    by day or start, or the owner is asked which one."""
+    name = str(args.get("name") or "").strip()
+    path = ctx.proposals.roster_path
+    if not name:
+        return {"ok": False, "error": "give the rule's name, as listed in the duty roster"}
+    if path is None or not path.exists():
+        return {"ok": False, "error": "there is no duty roster file"}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    entries = [e for e in (data.get("entries") or []) if isinstance(e, dict)] if isinstance(data, dict) else []
+    matches = [e for e in entries if _same_name(e.get("name"), name)]
+    day = str(args.get("day") or "").lower()[:3]
+    if day:
+        matches = [e for e in matches if e.get("days", "all") == "all" or day in [str(d).lower()[:3] for d in e["days"]]]
+    if args.get("start"):
+        matches = [e for e in matches if str(e.get("start")) == str(args["start"])]
+    if not matches:
+        return {"ok": False, "error": f"no rule called {name!r} matches; rules: {[e.get('name') for e in entries]}"}
+    if len(matches) > 1:
+        return {
+            "ok": False,
+            "error": "several rules match; ask the owner which one, then call again with its day or start",
+            "matches": [_rule_text(e) for e in matches],
+        }
+    summary = f"Remove from the duty roster: {_rule_text(matches[0])}. Then a person there at those times is no longer expected."
+    return _proposed(ctx, ctx.proposals.propose(ctx.conversation, "roster_removal", {"entry": matches[0]}, summary))
 
 
 async def _propose_arming(ctx: ChatContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -370,6 +417,18 @@ TOOLS: list[ChatTool] = [
             "expect": {"type": "string", "description": "What is expected, in a few words."},
         }, ["name", "days", "start", "end"]),
         _propose_roster_rule,
+    ),
+    ChatTool(
+        "propose_roster_removal",
+        "Propose removing a duty-roster rule, by its name as listed in the duty roster. If several rules "
+        "match, ask the owner which one and call again with its day or start. Changes nothing until the "
+        "owner taps Confirm.",
+        _schema({
+            "name": {"type": "string", "description": "The rule's name, e.g. cleaner."},
+            "day": {"type": "string", "description": "Only if several rules share the name: one of its days."},
+            "start": {"type": "string", "description": "Only if several rules share the name: its start, HH:MM."},
+        }, ["name"]),
+        _propose_roster_removal,
     ),
     ChatTool(
         "propose_arming",

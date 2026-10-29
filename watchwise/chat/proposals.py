@@ -21,11 +21,11 @@ from typing import Any
 from watchwise.memory.store import Store
 from watchwise.memory.watches import WatchBook
 from watchwise.setup.plan import apply
-from watchwise.setup.roster import plan_roster_entry
+from watchwise.setup.roster import plan_roster_entry, plan_roster_removal
 
 logger = logging.getLogger(__name__)
 
-KINDS = ("roster_rule", "arming", "snooze", "watch")
+KINDS = ("roster_rule", "roster_removal", "arming", "snooze", "watch")
 TTL_S = 3600.0
 
 
@@ -85,6 +85,15 @@ class ProposalBook:
         logger.info("proposal %s (%s) applied: %s", proposal_id, row["kind"], result)
         return Decided(True, result)
 
+    def waiting(self, conversation: str) -> list[Proposal]:
+        """Proposals in this conversation still waiting for a tap."""
+        rows = self.store.query(
+            "SELECT id, kind, summary FROM proposals WHERE conversation=? AND status='pending' AND created_at>? "
+            "ORDER BY created_at",
+            (conversation, self.clock() - TTL_S),
+        )
+        return [Proposal(r["id"], r["kind"], r["summary"]) for r in rows]
+
     def cancel(self, proposal_id: str) -> Decided:
         row = self._pending(proposal_id)
         if isinstance(row, str):
@@ -119,6 +128,14 @@ class ProposalBook:
         apply([change], now=self.clock())
         backup = f"; the previous version is {change.backup.name}" if change.backup else ""
         return f"Added “{entry['name']}” to the duty roster ({self.roster_path.name}{backup})."
+
+    def _apply_roster_removal(self, payload: dict[str, Any]) -> str:
+        if self.roster_path is None:
+            raise RuntimeError("no duty roster file is configured (duty_roster.path)")
+        change = plan_roster_removal(self.roster_path, payload["entry"])
+        apply([change], now=self.clock())
+        backup = f"; the previous version is {change.backup.name}" if change.backup else ""
+        return f"Removed “{payload['entry'].get('name')}” from the duty roster ({self.roster_path.name}{backup})."
 
     def _apply_arming(self, payload: dict[str, Any]) -> str:
         if self.arming is None:

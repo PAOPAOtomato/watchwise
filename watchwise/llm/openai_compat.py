@@ -169,6 +169,7 @@ class OpenAICompatChat(ChatModel):
         messages: list[Message],
         *,
         tools: list[ToolSpec] | None = None,
+        tool_choice: str = "auto",
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> ChatResult:
@@ -188,7 +189,7 @@ class OpenAICompatChat(ChatModel):
                 }
                 for t in tools
             ]
-            body["tool_choice"] = "auto"
+            body["tool_choice"] = tool_choice
 
         url = openai_url(self.base_url, "chat/completions")
         for _ in range(5):  # at most one adaptation per tunable parameter

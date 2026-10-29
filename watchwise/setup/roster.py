@@ -1,9 +1,10 @@
-"""Add one rule to the duty roster file, plan -> confirm -> apply (D-065).
+"""Add or remove one duty-roster rule, plan -> confirm -> apply (D-065, D-070).
 
 A rule the owner confirmed in chat ("the cleaner comes Thursdays 1-4 pm") is
-appended to the ``entries:`` list as text, so every other line and comment
-stays as it was; the file is backed up first (``setup.plan.apply``). The
-roster reloads itself when the file changes, so the next event uses it.
+appended to the ``entries:`` list as text, and a removed rule's lines are cut
+out, so every other line and comment stays as it was; the file is backed up
+first (``setup.plan.apply``). The roster reloads itself when the file
+changes, so the next event uses it.
 """
 
 from __future__ import annotations
@@ -61,3 +62,44 @@ def _appended(text: str, entry: dict[str, Any]) -> str | None:
     if before and not before.endswith("\n"):
         before += "\n"
     return before + block + "".join(lines[end:])
+
+
+def plan_roster_removal(path: Path, entry: dict[str, Any]) -> FileChange:
+    """What removing ``entry`` (exactly as the proposal saw it) would change.
+    Writes nothing; refuses if the file no longer holds it exactly once."""
+    current = path.read_text(encoding="utf-8") if path.exists() else ""
+    data = yaml.safe_load(current) or {}
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries, list) or entries.count(entry) != 1:
+        raise RuntimeError("the duty roster changed since this was proposed; ask again")
+    index = entries.index(entry)
+    remaining = entries[:index] + entries[index + 1 :]
+    text = _cut(current, index)
+    if text is None or (yaml.safe_load(text) or {}).get("entries") != remaining:
+        data = dict(data)
+        data["entries"] = remaining
+        text = HEADER + yaml.safe_dump(data, sort_keys=False, width=100)
+    return plan_file(path, text, reason="a duty-roster rule removed in chat")
+
+
+def _cut(text: str, index: int) -> str | None:
+    """``text`` without the lines of item ``index`` of the ``entries:`` list.
+    Blank and comment lines just before the next item stay with that item."""
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if re.match(r"^entries:\s*(#.*)?$", line)), None)
+    if start is None:
+        return None
+    items, end, indent = [], start + 1, None
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t-#"):
+        item = re.match(r"^(\s*)- ", lines[end])
+        if item and (indent is None or item.group(1) == indent):
+            indent = item.group(1)
+            items.append(end)
+        end += 1
+    if index >= len(items):
+        return None
+    first = items[index]
+    last = items[index + 1] if index + 1 < len(items) else end
+    while last > first + 1 and (not lines[last - 1].strip() or lines[last - 1].lstrip().startswith("#")):
+        last -= 1
+    return "".join(lines[:first] + lines[last:])

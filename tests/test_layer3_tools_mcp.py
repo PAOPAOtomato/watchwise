@@ -374,6 +374,49 @@ async def test_describe_historical_frames_actually_runs_the_vlm(tool_ctx):
     assert result["model"].startswith("stub/")
 
 
+async def test_missing_frames_say_why_and_frames_keep_their_own_times(tool_ctx, nvr_state, monkeypatch):
+    """B-034, live 2026-10-28: investigations start ~4 s into an event, before
+    its recordings exist, and a quiet moment had no recording (404). The VLM was
+    told its 2 frames were at [-60, -30, 0] and saw "no person"; the investigator
+    called that a contradiction."""
+    anchor = 1_700_000_000.0
+    tool_ctx.clock = lambda: anchor + 4
+    real = tool_ctx.nvr.recording_frame
+
+    async def gappy(camera, timestamp, **kw):
+        if timestamp == anchor - 30 or timestamp > anchor:
+            raise RuntimeError("GET snapshot.jpg -> 404")
+        return await real(camera, timestamp, **kw)
+
+    monkeypatch.setattr(tool_ctx.nvr, "recording_frame", gappy)
+    got = await GET_FRAMES_TOOL.run(tool_ctx, {"camera": "cam_drive", "timestamp": anchor,
+                                               "offsets_s": [-60, -30, 0, 30]})
+    assert [f.get("missing") for f in got["frames"]] == [
+        None, "no recording of that moment (expired, or only moments with motion are kept)",
+        None, "not recorded yet: the event is still going"]
+    assert "1 not recorded yet (the event is still going), 1 with no recording" in got["interpretation"]
+    assert "not evidence of anything" in got["interpretation"]
+
+    prompts_seen = []
+    vlm = tool_ctx.config_cache["vlm"]
+    screen = vlm.screen
+
+    async def spy(frames, prompt, system):
+        prompts_seen.append(prompt)
+        return await screen(frames, prompt, system)
+
+    monkeypatch.setattr(vlm, "screen", spy)
+    seen = await DESCRIBE_FRAMES_TOOL.run(tool_ctx, {"camera": "cam_drive", "timestamp": anchor,
+                                                     "offsets_s": [-60, -30, 0, 30], "question": "who?"})
+    assert seen["frames_examined"] == 2 and seen["offsets_s"] == [-60.0, 0.0]
+    assert "offsets [-60.0, 0.0] seconds" in prompts_seen[0], "the model is told the times it really sees"
+    assert seen["missing"] == {-30.0: "no recording of that moment (expired, or only moments with motion are kept)",
+                               30.0: "not recorded yet: the event is still going"}
+
+    later = await DESCRIBE_FRAMES_TOOL.run(tool_ctx, {"camera": "cam_drive", "timestamp": anchor, "offsets_s": [10]})
+    assert not later["ok"] and "not recorded yet" in later["error"]
+
+
 # ---------------- error handling & MCP exposure ----------------
 
 
@@ -525,6 +568,24 @@ def test_a_roster_rule_can_carry_its_own_time_zone(tmp_path):
     thursday_2pm_utc = dt.datetime(2026, 10, 29, 14, 0, tzinfo=dt.timezone.utc).timestamp()
     assert roster.match(thursday_2pm_utc) == [], "09:00 in Chicago"
     assert roster.entries()[0]["name"] == "cleaner"
+
+
+async def test_the_roster_check_shows_the_time_as_the_matching_rule_reads_it(tool_ctx, tmp_path):
+    """B-033, live 2026-10-28: a Wednesday rule in Chicago time matched, but the
+    result said "02:05 UTC, day thu" (the file's zone) beside it."""
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+
+    path = tmp_path / "roster.yml"
+    path.write_text("timezone: UTC\nentries:\n  - name: Alex\n    days: [wed]\n    start: '20:00'\n"
+                    "    end: '23:00'\n    timezone: America/Chicago\n", encoding="utf-8")
+    tool_ctx.roster = DutyRoster(path)
+    wednesday_9pm = dt.datetime(2026, 10, 28, 21, 5, tzinfo=ZoneInfo("America/Chicago")).timestamp()
+    result = await ROSTER_TOOL.run(tool_ctx, {"timestamp": wednesday_9pm, "labels": ["person"]})
+    assert result["expected"] and result["day"] == "wed" and result["local_time"].startswith("2026-10-28 21:05:00")
+    assert result["matches"][0]["timezone"] == "America/Chicago"
+    nothing = await ROSTER_TOOL.run(tool_ctx, {"timestamp": wednesday_9pm + 3 * 3600})
+    assert not nothing["expected"] and nothing["day"] == "thu", "no match: the file's zone, as before"
 
 
 def test_a_rule_with_an_unknown_time_zone_says_so(tmp_path, caplog):

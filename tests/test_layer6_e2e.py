@@ -883,6 +883,36 @@ async def test_a_face_nobody_matches_raises_the_event_at_its_end(system):
     assert system.memory_sink.latest("unk-3").disposition is Disposition.DOWNGRADED, "a known non-resident"
 
 
+async def test_an_unmatched_face_the_roster_expects_is_noted_not_raised(system, tmp_path):
+    """D-068, live 2026-10-28 21:41: a rostered visit (Alex) was cleared, then
+    raised at the end as "a face nobody matched": a visitor's face isn't in
+    Frigate's library, so every rostered visit would end in an alert."""
+    from watchwise.tools.duty_roster import DutyRoster
+
+    roster_path = tmp_path / "roster.yml"
+    roster_path.write_text("entries:\n  - name: Alex\n    days: all\n    start: '00:00'\n    end: '23:59'\n"
+                           "    cameras: [cam_door]\n    labels: [person]\n")
+    system.config.faces.household = ["rui"]
+    system.arming.set("armed_home")
+    system.screener.vlm = TwoQuestionVLM("benign", None)
+    for review_id, roster in (("ros-unk-1", DutyRoster(roster_path)), ("ros-unk-2", None)):
+        system.pipeline.roster = roster
+        kwargs = dict(ts=DAY_TS + 715_000, duration=20.0)
+        await system.pipeline.handle(_faced("new", review_id, **kwargs))
+        for _ in range(2):
+            system.pipeline.note_face({"type": "face", "id": f"{review_id}-obj", "name": None, "score": 0.4})
+        await system.pipeline.handle(_faced("end", review_id, **kwargs))
+    noted = system.memory_sink.latest("ros-unk-1")
+    assert noted.disposition is Disposition.DOWNGRADED
+    from watchwise.notify.presenter import plain_reason
+
+    assert "a face it couldn't match" in plain_reason(noted), "the card and the chat show the note"
+    assert noted.rationale.endswith("Frigate saw a face it couldn't match, but the duty roster expects Alex "
+                                    "(every day 00:00–23:59), so that alone doesn't raise it.")
+    assert system.memory_sink.latest("ros-unk-2").disposition is Disposition.ALERTED, "without the roster: raised"
+    assert system.pipeline.metrics["raised_by_unknown_face"] == 1
+
+
 async def test_while_away_a_recognized_resident_counts_like_the_roster(system):
     from watchwise.types import Investigation
 
@@ -983,6 +1013,7 @@ async def test_a_watch_is_checked_even_when_a_resident_is_recognized(system):
     assert vlm.asked == [(prompts.WATCH_SYSTEM, 4)], "one question, on frames across the whole event"
     assert (ended.disposition, ended.stage) == (Disposition.ALERTED, Stage.SUMMARIZED)
     assert ended.summary == "👀 You asked to be told when “someone fell down to the ground”: a person lying on the floor by the desk"
+    assert ended.rationale == ended.summary, "what the owner asked for, not 'rated it suspicious' (live 2026-10-28)"
     assert book.active() == [], "the watch ends once it has alerted"
 
 

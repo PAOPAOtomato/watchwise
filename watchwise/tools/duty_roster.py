@@ -155,6 +155,7 @@ class DutyRoster:
                     "kind": entry.get("kind", "shift"),
                     "window": f"{entry.get('start', '00:00')}-{entry.get('end', '23:59')}",
                     "days": entry.get("days", "all"),
+                    "timezone": entry["timezone"] if own is not None else self.timezone,
                     "expect": entry.get("expect", ""),
                     "confidence": float(entry.get("confidence", 0.8)),
                     "cameras": cams,
@@ -186,7 +187,11 @@ async def _check_duty_roster(ctx: ToolContext, args: dict[str, Any]) -> dict[str
         labels=args.get("labels"),
     )
 
-    moment = safe_datetime(timestamp, roster.tzinfo())
+    # The time as the matching rule reads it: live, a Wednesday rule in local
+    # time was reported next to "thu" (the file's UTC), which a small model
+    # can take as a contradiction.
+    shown = zone(matches[0]["timezone"]) if matches else None
+    moment = safe_datetime(timestamp, shown or roster.tzinfo())
     return {
         "configured": True,
         "local_time": moment.strftime("%Y-%m-%d %H:%M:%S %Z") if moment else None,

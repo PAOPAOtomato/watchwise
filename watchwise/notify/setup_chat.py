@@ -555,9 +555,11 @@ class SetupChat:
         )
 
     async def _face_photo(self, name: str, camera: str | None) -> list[Reply]:
-        """📸: with several cameras, ask which one takes the photo. A
-        resident is recognized best by a camera that has a photo from its
-        own angle (live: laptopcam knew Ray only after one)."""
+        """📸: with several cameras, ask which one takes the photo. Frigate's
+        Face Library is one for all cameras, so any camera's photo enrolls a
+        resident everywhere; the best camera is the one that sees the face
+        frontally and close. (D-064's "each camera needs its own photo" rested
+        on a misreading: laptopcam recognized Ray from the webcam photos.)"""
         try:
             cameras = await self.nvr.cameras()
         except Exception:
@@ -568,9 +570,10 @@ class SetupChat:
             return [Reply("", face=name)]
         tiles = [(f"📷 {c}", f"su:face:{name}:{i}") for i, c in enumerate(cameras)]
         return [Reply(
-            f"📸 Which camera should take the photo of {esc(name)}? Face that camera, alone "
-            "and in good light, then tap it. Each camera recognizes you best with a photo "
-            "from its own angle.",
+            f"📸 Which camera should take the photo of {esc(name)}? One clear, front-facing "
+            "photo from any camera enrolls you for every camera: pick the one you can face "
+            "closely, alone and in good light, then tap it. A few more photos with some variety "
+            "(another camera, other light) make recognition steadier.",
             [tiles[i : i + 2] for i in range(0, len(tiles), 2)],
         )]
 

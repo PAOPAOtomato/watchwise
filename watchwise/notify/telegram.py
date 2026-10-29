@@ -29,7 +29,7 @@ from typing import Any
 
 import httpx
 
-from watchwise.config import CameraSettings, RoomSettings, TelegramSettings, room_key, same_room
+from watchwise.config import CameraSettings, FaceSettings, RoomSettings, TelegramSettings, room_key, same_room
 from watchwise.memory.store import Store
 from watchwise.notify.actions import ASK_WHY, ActionHandler
 from watchwise.notify.faces import FaceEnroller
@@ -208,11 +208,13 @@ class TelegramNotifier:
         clock: Callable[[], float] = time.time,
         cameras: dict[str, CameraSettings] | None = None,
         rooms: RoomSettings | None = None,
+        faces: FaceSettings | None = None,
     ):
         self.api = api
         self.settings = settings
         self.store = store
         self.nvr = nvr
+        self.faces = faces if faces is not None else FaceSettings()  # residents, kept current by /setup
         # Frigate's web page, for each card's link to its recording.
         self.web_url = web_url
         self.clock = clock
@@ -402,7 +404,8 @@ class TelegramNotifier:
         companions = self._room_companions(ctx)
         card = self._card(ctx.review_id, ctx, decision, members=companions) or build_card(ctx, decision)
         image = await self._snapshot(ctx) if self.settings.send_images else None
-        markup = keyboard_markup(ctx.review_id, card.keyboard, clip=clip_url(self.web_url, ctx.review_id))
+        markup = keyboard_markup(ctx.review_id, card.keyboard, clip=clip_url(self.web_url, ctx.review_id),
+                                 who=self._who(card))
         for chat_id in self.settings.chat_ids:
             await self._pace(str(chat_id))
             if image:
@@ -441,7 +444,8 @@ class TelegramNotifier:
 
     async def _edit_all(self, rows: list[Any], card: AlertCard, footer: str, keyboard: str) -> None:
         card.footer = footer
-        markup = keyboard_markup(card.review_id, keyboard, clip=clip_url(self.web_url, card.review_id))
+        markup = keyboard_markup(card.review_id, keyboard, clip=clip_url(self.web_url, card.review_id),
+                                 who=self._who(card))
         for row in rows:
             limit = CAPTION_LIMIT if row["has_image"] else TEXT_LIMIT
             try:
@@ -454,6 +458,10 @@ class TelegramNotifier:
                 )
             except TelegramError as exc:
                 logger.warning("could not update the card for %s: %s", card.review_id, exc)
+
+    def _who(self, card: AlertCard) -> list[str]:
+        """Residents to offer on a card for a face nobody matched (D-071)."""
+        return list(self.faces.household) if card.unknown_face else []
 
     async def _snapshot(self, ctx: AlertContext) -> bytes | None:
         try:
@@ -487,7 +495,9 @@ HELP = (
     "/new starts a new conversation\n"
     "/setup: tell Watchwise about your home (cameras, residents, what always alerts)\n"
     "/arm: see or switch arming (Home, Away, Night, Off)\n"
-    "/face &lt;name&gt;: add your face to Frigate's Face Library from what the camera sees now"
+    "/face &lt;name&gt;: add your face to Frigate's Face Library from what the camera sees now "
+    "(one library for every camera); /face alone: what it holds. On a card for a face nobody "
+    "matched, 👤 That was &lt;name&gt; teaches it with that face"
 )
 ARM_BUTTONS = [
     [("🏠 Home", "ar:armed_home"), ("🚪 Away", "ar:armed_away")],
@@ -816,10 +826,11 @@ class TelegramBot:
     # ---------------- /face ----------------
 
     async def _face(self, chat_id: Any, text: str) -> None:
-        """/face <name> [camera]: show the camera's current frame, ask first (D-058)."""
+        """/face <name> [camera]: show the camera's current frame, ask first
+        (D-058). /face alone: what the Face Library holds (D-071)."""
         parts = text.split()
         if self.enroller is not None and len(parts) < 2:
-            await self.api.send_message(chat_id, "Send /face &lt;name&gt; [camera] while you face the camera, e.g. /face alex.")
+            await self.api.send_message(chat_id, html.escape(await self.enroller.status(), quote=False))
             return
         await self._face_capture(chat_id, parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else None)
 
@@ -827,10 +838,13 @@ class TelegramBot:
         if self.enroller is None:
             await self.api.send_message(chat_id, "Adding faces isn't available here.")
             return
-        token, capture, message = await self.enroller.capture(name, camera)
+        await self._face_preview(chat_id, *(await self.enroller.capture(name, camera)))
+
+    async def _face_preview(self, chat_id: Any, token: str | None, capture: Any, message: str,
+                            reply_to: Any = None) -> None:
         text = html.escape(message, quote=False)
         if capture is None:
-            await self.api.send_message(chat_id, text)
+            await self.api.send_message(chat_id, text, reply_to=reply_to)
             return
         markup = {"inline_keyboard": [[
             {"text": "✅ Add", "callback_data": f"fc:add:{token}"},
@@ -839,12 +853,20 @@ class TelegramBot:
         if self.settings.send_images:
             await self.api.send_photo(chat_id, capture.jpeg, text, reply_markup=markup)
         else:
-            await self.api.send_message(chat_id, text, reply_markup=markup)
+            await self.api.send_message(chat_id, text, reply_markup=markup, reply_to=reply_to)
 
     async def _face_button(self, query: dict[str, Any], chat_id: Any, data: str) -> None:
         _, action, token = (data.split(":", 2) + ["", ""])[:3]
         if self.enroller is None or not token:
             await self._answer(query, "Unknown button.")
+            return
+        message_id = (query.get("message") or {}).get("message_id")
+        if action == "who":
+            # "👤 That was <name>" on a card for a face nobody matched (D-071).
+            name, _, review_id = token.partition(":")
+            await self._answer(query, "Looking for the face…")
+            group = self.notifier.card_group(review_id) or [review_id]
+            await self._face_preview(chat_id, *(await self.enroller.from_event(name, group)), reply_to=message_id)
             return
         if action == "add":
             await self._answer(query, "Adding…")
@@ -852,7 +874,6 @@ class TelegramBot:
         else:
             await self._answer(query, "Cancelled.")
             result = self.enroller.cancel(token)
-        message_id = (query.get("message") or {}).get("message_id")
         await self.api.send_message(chat_id, html.escape(result, quote=False), reply_to=message_id)
 
     async def _answer(self, query: dict[str, Any], text: str | None) -> None:

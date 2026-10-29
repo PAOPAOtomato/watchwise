@@ -340,7 +340,8 @@ def _build_telegram(
             "notify.telegram has no chat_ids; run `watchwise telegram link` to connect a chat"
         )
     notifier = TelegramNotifier(
-        api, settings, store, nvr, web_url=config.nvr.web_url, cameras=config.cameras, rooms=config.rooms
+        api, settings, store, nvr, web_url=config.nvr.web_url, cameras=config.cameras, rooms=config.rooms,
+        faces=config.faces,
     )
     handler = ActionHandler(
         store=store,

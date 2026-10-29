@@ -124,9 +124,11 @@ class ToolLoopBackend(AgentBackend):
                 messages.append(result.as_message())
                 messages.append(Message.user(NUDGE))
 
-            # Out of rounds (or tool budget): one last turn to conclude.
+            # Out of rounds (or tool budget): one last turn to conclude, with
+            # no tool calls allowed. Live 2026-10-28 the 8B model called one
+            # more tool here and the whole investigation was thrown away.
             messages.append(Message.user(CONCLUDE))
-            result = await self.chat.complete(messages, tools=self.specs)
+            result = await self.chat.complete(messages, tools=self.specs, tool_choice="none")
             usage.add(result.usage)
             if result.stop_reason == "refusal":
                 return _declined()

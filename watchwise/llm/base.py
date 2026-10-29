@@ -150,10 +150,13 @@ class ChatModel(ABC):
         messages: list[Message],
         *,
         tools: list[ToolSpec] | None = None,
+        tool_choice: str = "auto",
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> ChatResult:
-        """Run one model turn."""
+        """Run one model turn. ``tool_choice="none"``: answer in text now;
+        the tools stay defined for providers that want them alongside tool
+        calls in the history."""
 
     async def list_models(self) -> list[str]:
         """Models the server offers, where the provider can say. Default: unknown."""

@@ -201,7 +201,9 @@ async def test_openai_compat_round_trip_with_native_tool_calls(fake_llm, monkeyp
             Message.tool_result(result.tool_calls[0], '{"ok": true}'),
         ],
         tools=[TOOL],
+        tool_choice="none",
     )
+    assert sent["tool_choice"] == "auto" and state.requests[1]["tool_choice"] == "none", "a final turn: text only"
     followup = state.requests[1]["messages"]
     assert followup[1]["tool_calls"][0]["function"]["arguments"] == json.dumps({"camera": "cam_door"})
     assert followup[2] == {"role": "tool", "tool_call_id": "call_7", "content": '{"ok": true}'}
@@ -378,8 +380,9 @@ async def test_ollama_sends_context_length_and_parses_tool_calls(fake_llm):
     assert result.usage.input_tokens == 13
 
     await chat.complete(
-        [result.as_message(), Message.tool_result(result.tool_calls[0], "{}")], tools=[TOOL]
+        [result.as_message(), Message.tool_result(result.tool_calls[0], "{}")], tools=[TOOL], tool_choice="none"
     )
+    assert "tools" in state.requests[0] and "tools" not in state.requests[1], "Ollama has no tool_choice"
     tool_msg = state.requests[1]["messages"][1]
     assert tool_msg == {"role": "tool", "content": "{}", "tool_name": "get_device_status"}
 
@@ -568,7 +571,11 @@ async def test_anthropic_request_shape_and_tool_use_parsing(monkeypatch):
             Message.tool_result(second_call, "boom", is_error=True),
         ],
         tools=[TOOL],
+        tool_choice="none",
     )
+    assert "tool_choice" not in body
+    assert captured[1]["body"]["tool_choice"] == {"type": "none"} and captured[1]["body"]["tools"], \
+        "a text-only turn keeps the tools defined beside the tool blocks"
     replay = captured[1]["body"]["messages"]
     assert replay[1]["content"][0] == {"type": "thinking", "thinking": "", "signature": "sig-1"}
     assert [b["tool_use_id"] for b in replay[2]["content"]] == ["toolu_1", "toolu_2"]
@@ -731,6 +738,19 @@ async def test_a_model_that_never_concludes_is_cut_off(tool_ctx, store):
     assert inv.verdict is Verdict.UNCERTAIN and inv.confidence == 0.0
     assert len(chat.calls) == 3  # two rounds plus one "conclude now" turn
     assert inv.iterations == 2
+
+
+async def test_the_last_turn_allows_no_more_tool_calls(tool_ctx, store):
+    """Live 2026-10-28 21:37: the 8B investigator called one more tool on the
+    "conclude now" turn and the whole investigation came back unusable."""
+
+    def keen(msgs, tools):
+        return call(camera="cam_drive") if tools else conclusion("benign", 0.9, "the duty roster expects Alex")
+
+    chat = StubChat(script=[keen] * 3)
+    inv = await investigator_for(chat, tool_ctx, store, max_iterations=2).investigate(make_alert(), UNCERTAIN)
+    assert (inv.verdict, inv.confidence) == (Verdict.BENIGN, 0.9)
+    assert [tools is None for _, tools in chat.calls] == [False, False, True]
 
 
 async def test_a_transport_failure_marks_the_investigation_failed(tool_ctx, store):

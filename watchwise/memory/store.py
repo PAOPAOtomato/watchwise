@@ -409,16 +409,16 @@ class Store:
 
     # ---------------- chat (D-065) ----------------
 
-    def add_chat_message(self, conversation: str, role: str, content: str) -> None:
+    def add_chat_message(self, conversation: str, role: str, content: str, at: float | None = None) -> None:
         self.execute(
             "INSERT INTO chat_messages(conversation, role, content, created_at) VALUES (?,?,?,?)",
-            (conversation, role, content, time.time()),
+            (conversation, role, content, time.time() if at is None else at),
         )
 
     def chat_history(self, conversation: str, limit: int) -> list[sqlite3.Row]:
         """The last ``limit`` messages, oldest first."""
         rows = self.query(
-            "SELECT role, content FROM chat_messages WHERE conversation=? ORDER BY id DESC LIMIT ?",
+            "SELECT role, content, created_at FROM chat_messages WHERE conversation=? ORDER BY id DESC LIMIT ?",
             (conversation, int(limit)),
         )
         return list(reversed(rows))

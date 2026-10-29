@@ -48,6 +48,11 @@ def person_while_armed(ctx: AlertContext, arming: str | None) -> bool:
     return arming in ARMED_STATES and any(label.lower() == "person" for label in ctx.labels)
 
 
+def _then(first: str, rest: str) -> str:
+    """``first`` (a sentence or nothing), then ``rest`` as the next sentence."""
+    return f"{first}{rest[:1].upper()}{rest[1:]}" if first else rest
+
+
 class DecisionPolicy:
     def __init__(self, settings: DecisionSettings):
         self.settings = settings
@@ -120,15 +125,15 @@ class DecisionPolicy:
             and decision.stage is not Stage.INGESTED
         ):
             rating = "critical" if summary.threat_level >= 2 else "suspicious"
+            # A watch or "anyone" rule matched: the owner asked, nothing was
+            # judged suspicious (live 2026-10-28: a parcel "rated suspicious").
+            why = "" if summary.owner_asked else f"raised: the review of the whole event rated it {rating}. "
             return Decision(
                 review_id=decision.review_id,
                 disposition=Disposition.ALERTED,
                 severity=Severity.ALERT,
                 confidence=summary.confidence,
-                rationale=(
-                    f"raised: the review of the whole event rated it {rating}. "
-                    f"{summary.short_summary}"
-                ),
+                rationale=f"{why}{summary.short_summary}",
                 stage=Stage.SUMMARIZED,
                 screen=decision.screen,
                 investigation_id=decision.investigation_id,
@@ -151,10 +156,21 @@ class DecisionPolicy:
             stage=Stage.FACE,
         )
 
-    def unknown_face(self, decision: Decision) -> Decision:
-        """A face the NVR could not match to anyone: raises, never lowers."""
+    def unknown_face(self, decision: Decision, *, expected: str = "") -> Decision:
+        """A face the NVR could not match to anyone: raises, never lowers.
+        ``expected``: the duty roster expects someone here now (D-068), whose
+        face the NVR can't know; then it is only noted."""
         if decision.disposition not in (Disposition.DOWNGRADED, Disposition.SUPPRESSED):
             return decision
+        if expected:
+            return replace(
+                decision,
+                rationale=_then(
+                    decision.rationale.removesuffix(".") + ". " if decision.rationale else "",
+                    f"Frigate saw a face it couldn't match, but {expected}, so that alone doesn't raise it.",
+                ),
+                stage=Stage.FACE,  # so cards and chat show this reason, not the screener's
+            )
         return replace(
             decision,
             disposition=Disposition.ALERTED,
@@ -251,28 +267,33 @@ class DecisionPolicy:
         *,
         matched_memory_ids: list[str] | None = None,
         arming: str | None = None,
-        roster_expects: bool = False,
+        roster_expects: str | bool = False,
         recently_real: bool = False,
     ) -> Decision:
+        """``roster_expects``: why a person is expected now (the duty roster or
+        a recognized resident), or false."""
         decision = self._from_investigation(ctx, screen, inv, matched_memory_ids)
-        if (
-            person_while_armed(ctx, arming)
-            and not roster_expects
-            and decision.disposition in (Disposition.DOWNGRADED, Disposition.SUPPRESSED)
+        allowed = ""
+        if person_while_armed(ctx, arming) and decision.disposition in (
+            Disposition.DOWNGRADED, Disposition.SUPPRESSED
         ):
-            # D-049: while nobody should be home, only the duty roster may
-            # clear a person; "it looked routine before" may not.
             assert arming is not None
-            return replace(
-                decision,
-                disposition=Disposition.ESCALATED_HUMAN,
-                severity=Severity.ALERT,
-                rationale=(
-                    f"a person in view while {arming.replace('_', ' ')}, and the duty roster "
-                    f"expects nobody here now, so you decide. The investigation leaned "
-                    f"benign ({inv.confidence:.2f}): {inv.conclusion}"
-                ),
-            )
+            if not roster_expects:
+                # D-049: while nobody should be home, only the duty roster may
+                # clear a person; "it looked routine before" may not.
+                return replace(
+                    decision,
+                    disposition=Disposition.ESCALATED_HUMAN,
+                    severity=Severity.ALERT,
+                    rationale=(
+                        f"a person in view while {arming.replace('_', ' ')}, and the duty roster "
+                        f"expects nobody here now, so you decide. The investigation leaned "
+                        f"benign ({inv.confidence:.2f}): {inv.conclusion}"
+                    ),
+                )
+            # B-032: say what let a person through while armed.
+            why = roster_expects if isinstance(roster_expects, str) else "the duty roster expects someone now"
+            allowed = f"expected while {arming.replace('_', ' ')}: {why}. "
         if recently_real and decision.disposition is Disposition.SUPPRESSED:
             # D-052: the owner recently marked this kind of event real, so a
             # benign investigation may demote it but not hide it.
@@ -280,11 +301,14 @@ class DecisionPolicy:
                 decision,
                 disposition=Disposition.DOWNGRADED,
                 severity=Severity.DETECTION,
-                rationale=(
+                rationale=_then(
+                    allowed,
                     f"you recently marked this kind of event real, so it stays visible. "
-                    f"The investigation found it benign ({inv.confidence:.2f}): {inv.conclusion}"
+                    f"The investigation found it benign ({inv.confidence:.2f}): {inv.conclusion}",
                 ),
             )
+        if allowed:
+            return replace(decision, rationale=_then(allowed, decision.rationale.removeprefix("auto-downgraded: ")))
         return decision
 
     def _from_investigation(

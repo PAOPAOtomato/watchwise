@@ -20,6 +20,14 @@ from typing import Any
 
 from watchwise.timeutil import safe_strftime
 from watchwise.tools.base import ForensicTool, ToolContext, obj_schema
+from watchwise.types import Frame
+
+
+# Frigate writes recordings in ~10 s segments, so the last seconds of an
+# event that is still going cannot be fetched yet (B-034).
+RECORDING_LAG_S = 15.0
+NOT_YET = "not recorded yet: the event is still going"
+NO_RECORDING = "no recording of that moment (expired, or only moments with motion are kept)"
 
 
 def _plan(start: float, offsets: list[float]) -> list[dict[str, Any]]:
@@ -28,6 +36,33 @@ def _plan(start: float, offsets: list[float]) -> list[dict[str, Any]]:
         ts = start + off
         out.append({"timestamp": ts, "offset_s": off, "local_time": safe_strftime(ts)})
     return out
+
+
+async def _fetch(ctx: ToolContext, camera: str, item: dict[str, Any], height: int) -> Frame | None:
+    """The frame, or None with ``item["missing"]`` saying why. B-034: live,
+    an investigation started 4 s into an event and read frames it couldn't
+    have yet, and a gap in the recordings, as "the person isn't there"."""
+    try:
+        return await ctx.nvr.recording_frame(camera, item["timestamp"], height=height)
+    except Exception as exc:
+        recent = item["timestamp"] > ctx.clock() - RECORDING_LAG_S
+        item["missing"] = NOT_YET if recent else NO_RECORDING
+        item["error"] = str(exc)[:120]
+        return None
+
+
+def _missing_note(items: list[dict[str, Any]]) -> str:
+    missing = [i for i in items if i.get("missing")]
+    if not missing:
+        return ""
+    later = sum(1 for i in missing if i["missing"] == NOT_YET)
+    parts = []
+    if later:
+        parts.append(f"{later} not recorded yet (the event is still going)")
+    if len(missing) > later:
+        parts.append(f"{len(missing) - later} with no recording")
+    return (f" Missing frames ({', '.join(parts)}) are not evidence of anything: they say nothing "
+            "about whether anyone was there.")
 
 
 async def _get_historical_frames(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -40,13 +75,10 @@ async def _get_historical_frames(ctx: ToolContext, args: dict[str, Any]) -> dict
     planned = _plan(anchor, offsets)
     available: list[dict[str, Any]] = []
     for item in planned:
-        try:
-            frame = await ctx.nvr.recording_frame(camera, item["timestamp"], height=360)
+        frame = await _fetch(ctx, camera, item, 360)
+        item["available"] = frame is not None
+        if frame is not None:
             item["bytes"] = len(frame.jpeg)
-            item["available"] = True
-        except Exception as exc:
-            item["available"] = False
-            item["error"] = str(exc)
         available.append(item)
 
     got = [f for f in available if f.get("available")]
@@ -62,7 +94,7 @@ async def _get_historical_frames(ctx: ToolContext, args: dict[str, Any]) -> dict
             if got
             else "No recordings exist for those timestamps; the window may predate "
             "retention or recording may be disabled for this camera."
-        ),
+        ) + _missing_note(available),
     }
 
 
@@ -83,16 +115,20 @@ async def _describe_historical_frames(ctx: ToolContext, args: dict[str, Any]) ->
     from watchwise.tier2.sampling import downscale_jpeg
 
     frames = []
-    for item in _plan(anchor, offsets):
-        try:
-            frame = await ctx.nvr.recording_frame(camera, item["timestamp"], height=480)
-        except Exception:
+    planned = _plan(anchor, offsets)
+    for item in planned:
+        frame = await _fetch(ctx, camera, item, 480)
+        if frame is None:
             continue
         frame.jpeg = downscale_jpeg(frame.jpeg, max_edge=640, quality=70)
         frames.append(frame)
+    # Tell the model the times of the frames it actually gets.
+    offsets = [i["offset_s"] for i in planned if not i.get("missing")]
+    missing = {i["offset_s"]: i["missing"] for i in planned if i.get("missing")}
 
     if not frames:
-        return {"ok": False, "error": "no frames retrievable for those offsets"}
+        return {"ok": False, "error": "no frames retrievable for those offsets." + _missing_note(planned),
+                "missing": missing}
 
     system = (
         "You are examining surveillance frames on request from an investigation "
@@ -110,6 +146,7 @@ async def _describe_historical_frames(ctx: ToolContext, args: dict[str, Any]) ->
         "camera": camera,
         "frames_examined": len(frames),
         "offsets_s": offsets,
+        **({"missing": missing, "note": _missing_note(planned).strip()} if missing else {}),
         "question": question,
         "verdict": result.verdict.value,
         "confidence": result.confidence,

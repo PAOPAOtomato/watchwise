@@ -20,6 +20,8 @@ Endpoints implemented (matching Frigate's HTTP API):
     GET /api/{camera}/recordings/{ts}/snapshot.{fmt}
     GET /api/faces
     POST /api/faces/{name}/register
+    POST /api/faces/train/{name}/classify
+    GET /clips/faces/train/{file}
 """
 
 from __future__ import annotations
@@ -70,6 +72,9 @@ class FakeNVRState:
         # Face Library: name -> images registered; whether a face is in view.
         self.faces: dict[str, int] = {}
         self.face_in_view = True
+        # Recent recognition attempts (Frigate's train folder): file -> crop.
+        self.face_attempts: dict[str, bytes] = {"attempt-1.webp": b"crop"}
+        self.trained: list[tuple[str, str]] = []  # (name, attempt file) moved into the library
         self.face_recognition: dict[str, Any] = {"enabled": True, "recognition_threshold": 0.9}
         self.detector_stats: dict[str, dict[str, Any]] = {
             "ov": {"inference_speed": 8.5, "detection_start": 0.0}
@@ -288,7 +293,7 @@ def build_fake_nvr(state: FakeNVRState | None = None) -> tuple[FastAPI, FakeNVRS
     @app.get("/api/faces")
     async def faces() -> dict[str, list[str]]:
         library = {name: [f"{name}-{i}.webp" for i in range(count)] for name, count in state.faces.items()}
-        return {"train": ["attempt-1.webp"], **library}
+        return {"train": list(state.face_attempts), **library}
 
     @app.post("/api/faces/{name}/register")
     async def register_face(name: str, request: Request) -> JSONResponse:
@@ -298,5 +303,22 @@ def build_fake_nvr(state: FakeNVRState | None = None) -> tuple[FastAPI, FakeNVRS
             return JSONResponse({"success": False, "message": "No face was detected."}, status_code=400)
         state.faces[name] = state.faces.get(name, 0) + 1
         return JSONResponse({"success": True, "message": "Successfully registered face."})
+
+    @app.post("/api/faces/train/{name}/classify")
+    async def train_face(name: str, request: Request) -> JSONResponse:
+        file = (await request.json()).get("training_file", "")
+        if file not in state.face_attempts:
+            return JSONResponse({"success": False, "message": f"Invalid filename or no file exists: {file}"},
+                                status_code=404)
+        del state.face_attempts[file]
+        state.faces[name] = state.faces.get(name, 0) + 1
+        state.trained.append((name, file))
+        return JSONResponse({"success": True, "message": f"Successfully saved {file}."})
+
+    @app.get("/clips/faces/train/{file}")
+    async def face_attempt(file: str) -> Response:
+        if file not in state.face_attempts:
+            raise HTTPException(status_code=404, detail="no such attempt")
+        return Response(content=state.face_attempts[file], media_type="image/webp")
 
     return app, state

@@ -72,6 +72,7 @@ class AlertCard:
     lines: list[str]
     keyboard: str = "full"
     footer: str = ""
+    unknown_face: bool = False  # offers "👤 That was <resident>" (D-071)
 
     def html(self, limit: int = CAPTION_LIMIT) -> str:
         """Telegram HTML within ``limit``. Text is trimmed *before* escaping,
@@ -118,7 +119,13 @@ def build_card(ctx: AlertContext, decision: Decision) -> AlertCard:
         title=f"{icon} {subject} · {where} · {when}",
         lines=lines,
         keyboard=keyboard_for(decision),
+        unknown_face=unknown_face(decision),
     )
+
+
+def unknown_face(decision: Decision) -> bool:
+    """Raised because Frigate saw a face it matched to nobody (D-057)."""
+    return decision.stage is Stage.FACE and decision.disposition is Disposition.ALERTED
 
 
 # How much a verdict asks of the owner; a room card shows the most (D-062).
@@ -142,6 +149,7 @@ def build_room_card(
     card = build_card(top_ctx, top)
     card.review_id, card.camera = lead[0].review_id, lead[0].camera
     card.keyboard = keyboard_for(lead[1])  # Look closer investigates the card's own event
+    card.unknown_face = any(unknown_face(d) for _, d in entries)
     subject = ", ".join(dict.fromkeys(label.capitalize() for c, _ in entries for label in c.labels)) or "Motion"
     cameras = " + ".join(dict.fromkeys(c.camera for c, _ in entries))
     when = safe_strftime(min(c.start_time for c, _ in entries), "%H:%M")
@@ -219,10 +227,13 @@ def clip_url(web_url: str | None, review_id: str) -> str | None:
     return f"{web_url.rstrip('/')}/review?id={quote(review_id, safe='')}"
 
 
-def keyboard_markup(review_id: str, keyboard: str, *, clip: str | None = None) -> dict[str, Any]:
+def keyboard_markup(
+    review_id: str, keyboard: str, *, clip: str | None = None, who: list[str] | tuple[str, ...] = ()
+) -> dict[str, Any]:
     """Telegram inline keyboard. ``keyboard`` may carry an argument for Undo,
     as ``after_feedback:<correction_id>``. ``clip`` adds a link to the
-    recording on its own row."""
+    recording on its own row; ``who``, residents to offer for a face nobody
+    matched ("👤 That was <name>", D-071)."""
     name, _, arg = keyboard.partition(":")
     rows = []
     for row in KEYBOARDS.get(name, KEYBOARDS["full"]):
@@ -238,6 +249,13 @@ def keyboard_markup(review_id: str, keyboard: str, *, clip: str | None = None) -
             buttons.append({"text": button.label, "callback_data": data})
         if buttons:
             rows.append(buttons)
+    faces = []
+    for name in list(who)[:3]:
+        data = f"fc:who:{name}:{review_id}"
+        if len(data.encode("utf-8")) <= 64:
+            faces.append({"text": f"👤 That was {name}", "callback_data": data})
+    if faces:
+        rows.append(faces)
     if clip:
         rows.append([{"text": CLIP_LABEL, "url": clip}])
     return {"inline_keyboard": rows}

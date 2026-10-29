@@ -19,7 +19,7 @@ import yaml
 
 from watchwise.config import CameraSettings, TelegramSettings
 from watchwise.fakes.telegram_server import FakeTelegramState, build_fake_telegram
-from watchwise.llm.base import ChatResult, Message, ToolCallRequest
+from watchwise.llm.base import ChatResult, Message, ToolCallRequest, Usage
 from watchwise.llm.stub import StubChat
 from watchwise.notify.telegram import TelegramAPI
 from watchwise.tier2.vlm.base import VLMBackend
@@ -162,6 +162,83 @@ async def test_new_forgets_the_conversation(home):
     assert [m.role for m in model.calls[-1][0]] == ["system", "user"], "no earlier turns after /new"
 
 
+async def test_after_six_quiet_hours_a_question_starts_afresh(home):
+    """D-069: yesterday's turns no longer shape today's answers (live, a stale
+    "I've proposed ... tap Confirm" was copied without the tool, B-031)."""
+    sys_, state, model, _ = home
+    chat = sys_.bot.chat
+    start = time.time()
+    chat.clock = lambda: start - 8 * 3600
+    model.script = [say("The cleaner comes on Thursdays.")]
+    await ask(sys_, state, "when does the cleaner come?")
+    chat.clock = lambda: start - 3600
+    model.script = [say("Nothing since then.")]
+    await ask(sys_, state, "anything new?")
+    assert [m.role for m in model.calls[-1][0]] == ["system", "user"], "a turn 7 quiet hours earlier is left out"
+    chat.clock = lambda: start
+    model.script = [say("Still nothing.")]
+    await ask(sys_, state, "and now?")
+    sent = model.calls[-1][0]
+    assert [m.role for m in sent] == ["system", "user", "assistant", "user"], "an hour ago still counts"
+    assert sent[1].content == "anything new?"
+    assert len(sys_.store.chat_history(str(CHAT), 10)) == 6, "nothing is deleted"
+
+
+def test_trimming_drops_the_oldest_turns_then_shrinks_older_tool_results(home, monkeypatch):
+    """D-069: the oldest whole turns go first; only then do this answer's older
+    tool results shrink. The system prompt, the question and the newest tool
+    result always stay. (At 3.5 characters a token: 350 characters = 100.)"""
+    from watchwise.chat import service
+    from watchwise.chat.service import _Fit
+
+    monkeypatch.setattr(service, "CHARS_PER_TOKEN", 3.5)
+    chat = home[0].bot.chat
+    chat._schema_tokens = 0
+    asked = Message.user("q" * 350)
+    turns = [m for n in range(4) for m in (Message.user(f"question {n}".ljust(35)), Message(role="assistant", content="a" * 350))]
+    call_1, call_2 = (ToolCallRequest(f"c{n}", "recent_activity", {}) for n in (1, 2))
+    loop = [Message(role="assistant", tool_calls=[call_1]), Message.tool_result(call_1, "r" * 700),
+            Message(role="assistant", tool_calls=[call_2]), Message.tool_result(call_2, "s" * 700)]
+
+    messages = [Message.system("s" * 350), *turns, asked, *loop]
+    fit = _Fit(asked)
+    chat.budget = 850
+    chat._fit(messages, fit)
+    assert [m.content.strip() for m in messages if m.role == "user"][:-1] == ["question 2", "question 3"]
+    assert fit.dropped == 4 and fit.shortened == 0 and fit.estimated <= 850
+
+    chat.budget = 600
+    chat._fit(messages, fit)
+    assert messages[1] is asked and fit.dropped == 8
+    assert messages[3].content.startswith("[recent_activity result, 700 characters") and messages[5].content == "s" * 700
+    assert fit.describe() == "; 8 earlier message(s) left out, 1 tool result(s) shortened"
+
+
+async def test_each_answer_logs_the_real_prompt_size(home, caplog):
+    import logging
+
+    sys_, state, model, _ = home
+    for n in range(3):
+        sys_.store.add_chat_message(str(CHAT), "user", f"question {n}")
+        sys_.store.add_chat_message(str(CHAT), "assistant", "x" * 3000)
+    model.script = [lambda m, t: (seen.update(sent=list(m)), ChatResult(content="Fine.", usage=Usage(input_tokens=2345)))[1]]
+    seen = {}
+    with caplog.at_level(logging.INFO, logger="watchwise.chat.service"):
+        await ask(sys_, state, "anything?")
+    assert "prompt 2345 tokens (estimated" in caplog.text
+    sent_answers = [m.content for m in seen["sent"] if m.role == "assistant"]
+    assert len(sent_answers) == 3 and all(len(a) == 600 and a.endswith("…") for a in sent_answers)
+    assert len(sys_.store.chat_history(str(CHAT), 10)[1]["content"]) == 3000, "stored whole"
+
+
+def test_the_budget_follows_the_chat_models_context():
+    from watchwise.chat.service import DEFAULT_WINDOW, chat_budget
+    from watchwise.config import ModelEndpoint
+
+    assert chat_budget(ModelEndpoint(provider="ollama", context_window=16384, max_tokens=1024)) == 13824
+    assert chat_budget(ModelEndpoint(provider="openai_compat", max_tokens=2048)) == int((DEFAULT_WINDOW - 2048) * 0.9)
+
+
 # ---------------------------------------------------------------- proposals
 
 
@@ -176,6 +253,8 @@ async def test_a_roster_rule_changes_nothing_until_confirmed_then_counts(home):
                     say("I've proposed the rule; tap Confirm.")]
     answer, proposal = await ask(sys_, state, "The cleaner comes today, all day, in the kitchen")
     assert "Add to the duty roster: “cleaner”" in proposal["text"] and "Nothing changes unless you confirm" in proposal["text"]
+    assert "the investigation is told a person there at those times is expected" in proposal["text"], \
+        "says what a rule does, no more (B-033: it doesn't clear a person by itself)"
     ok, cancel = state.buttons(proposal)
     assert ok.startswith("pr:ok:") and cancel.startswith("pr:no:")
     assert roster.read_text(encoding="utf-8") == before
@@ -190,10 +269,74 @@ async def test_a_roster_rule_changes_nothing_until_confirmed_then_counts(home):
     assert entry["timezone"] == local_zone_name(), "local time, whatever the file's timezone says"
     assert list(roster.parent.glob("duty_roster.yml.bak-*")), "backed up first"
     assert state.edits[-1]["text"].startswith("✅ Added “cleaner” to the duty roster")
-    assert sys_.pipeline._roster_expects(person), "the next event uses the rule"
+    assert sys_.pipeline._roster_expects(person) == f"the duty roster expects cleaner ({day.capitalize()} 00:00–23:59)", \
+        "the next event uses the rule, and the card can say so (B-032)"
 
     await tap(sys_, state, ok, proposal)
     assert "Already applied" in state.answers[-1]["text"]
+
+
+async def test_a_roster_rule_is_removed_only_on_confirm_and_a_shared_name_is_asked(home):
+    """D-070: any rule, by name. Two rules called "cleaner": the tool lists
+    them and the model asks which; with the day, exactly that one goes."""
+    sys_, state, model, roster = home
+    day = time.strftime("%a", time.gmtime(NOW)).lower()  # the file's rules are in UTC
+    other = "mon" if day != "mon" else "tue"
+    roster.write_text(roster.read_text(encoding="utf-8")
+                      + f"  - name: cleaner\n    days: [{day}]\n    start: '00:00'\n    end: '23:59'\n    cameras: [cam_door]\n"
+                      + f"  # weekly\n  - name: cleaner\n    days: [{other}]\n    start: '09:00'\n    end: '10:00'\n",
+                      encoding="utf-8")
+    person = make_alert(review_id="r-rm", camera="cam_door", labels=["person"], start_time=NOW)
+    assert sys_.pipeline._roster_expects(person)
+    seen = {}
+    model.script = [call("propose_roster_removal", name="the gardener"), call("propose_roster_removal", name="Cleaner"),
+                    lambda m, t: (seen.update(r=tool_results(m)), say("There are two cleaner rules; which one?"))[1]]
+    (reply,) = await ask(sys_, state, "remove the cleaner")
+    unknown, several = seen["r"]
+    assert "no rule called 'the gardener'" in unknown["error"] and "night_guard" in unknown["error"]
+    assert "ask the owner which one" in several["error"] and len(several["matches"]) == 2
+    assert sys_.store.query("SELECT * FROM proposals") == []
+
+    before = roster.read_text(encoding="utf-8")
+    model.script = [call("propose_roster_removal", name="cleaner", day=day), say("Proposed; tap Confirm.")]
+    _, proposal = await ask(sys_, state, f"the {day} one")
+    assert proposal["text"].startswith(f"📝 Remove from the duty roster: “cleaner”, {day.capitalize()} 00:00–23:59 on cam_door.")
+    assert roster.read_text(encoding="utf-8") == before and sys_.pipeline._roster_expects(person)
+
+    await tap(sys_, state, state.buttons(proposal)[0], proposal)
+    assert state.edits[-1]["text"].startswith("✅ Removed “cleaner” from the duty roster (duty_roster.yml; the previous")
+    after = yaml.safe_load(roster.read_text(encoding="utf-8"))["entries"]
+    assert [(e["name"], e["days"]) for e in after] == [("night_guard", "all"), ("cleaner", [other])]
+    assert "# weekly" in roster.read_text(encoding="utf-8") and list(roster.parent.glob("duty_roster.yml.bak-*"))
+    assert not sys_.pipeline._roster_expects(person), "the next event no longer matches"
+
+
+async def test_the_history_shows_how_earlier_proposals_were_made_and_ended(home, caplog):
+    """B-031's cause, live 2026-10-28 22:07: with only "✅ Proposal: Remove
+    “bin_collection” ... Tap Confirm" in the history, the 8B model wrote that
+    text again for "remove Alex" instead of calling the tool."""
+    sys_, state, model, _ = home
+    model.script = [call("propose_arming", state="armed_away"), say("✅ Proposal: switch to Away. Tap Confirm.")]
+    _, arming = await ask(sys_, state, "arm away")
+    await tap(sys_, state, state.buttons(arming)[0], arming)
+    model.script = [call("propose_snooze", camera="cam_door", minutes=30), say("Proposed muting the door.")]
+    _, snooze = await ask(sys_, state, "mute the door")
+    await tap(sys_, state, state.buttons(snooze)[1], snooze)
+    model.script = [say("Nothing new.")]
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="watchwise.chat.service"):
+        await ask(sys_, state, "anything?")
+    assert "with 0 tool call(s) []" in caplog.text, "the history's rebuilt calls aren't this answer's"
+
+    sent = model.calls[-1][0]
+    assert [m.role for m in sent] == ["system", "user", "assistant", "tool", "assistant",
+                                      "user", "assistant", "tool", "assistant", "user"]
+    assert sent[2].tool_calls[0].name == "propose_arming" and sent[2].tool_calls[0].arguments == {"state": "armed_away"}
+    first, second = json.loads(sent[3].content), json.loads(sent[7].content)
+    assert first == {"ok": True, "proposal": "Switch arming to Away.", "then": "the owner tapped Confirm; it was applied"}
+    assert sent[6].tool_calls[0].arguments == {"camera": "cam_door", "minutes": 30}
+    assert second["then"] == "the owner cancelled it" and sent[8].content == "Proposed muting the door."
 
 
 async def test_cancelled_and_expired_proposals_change_nothing(home):
@@ -259,6 +402,96 @@ async def test_a_watch_alerts_once_when_the_vision_model_sees_it(home):
 
 
 # ---------------------------------------------------------------- safety
+
+
+async def test_an_answer_claiming_a_proposal_no_tool_made_is_asked_again(home):
+    """B-031, live 2026-10-28: after an arming proposal, the model answered a
+    roster request with "I've proposed ... Tap Confirm" and called no tool,
+    so no proposal and no buttons existed. It is asked once more and makes it."""
+    sys_, state, model, roster = home
+    model.script = [call("propose_arming", state="armed_away"),
+                    say("I’ve proposed switching arming to \"Away.\" Tap Confirm to activate.")]
+    await ask(sys_, state, "arm the home to away")
+    seen = {}
+
+    def corrected(messages, tools):
+        seen["nudge"] = messages[-1].content
+        return call("propose_roster_rule", name="Alex", days=["wed"], start="20:00", end="23:00", camera="cam_door")
+
+    model.script = [say("I’ve proposed a new duty roster rule: \"alex_visits\" runs Wednesday 20:00–23:00. "
+                        "Tap Confirm to activate."), corrected, say("Proposed; tap Confirm.")]
+    answer, proposal = await ask(sys_, state, "My friend Alex comes over on Wednesdays from 20:00 to 23:00. "
+                                              "Add that to the duty roster.")
+    assert "called no propose_ tool" in seen["nudge"]
+    assert answer["text"] == "Proposed; tap Confirm."
+    assert "Add to the duty roster: “Alex”" in proposal["text"] and state.buttons(proposal)[0].startswith("pr:ok:")
+    assert "Alex" not in roster.read_text(encoding="utf-8"), "still nothing until the tap"
+
+
+async def test_a_typed_confirm_applies_nothing_and_no_success_is_made_up(home):
+    """B-031: the owner typed "Confirm" with nothing waiting; the model said
+    "All duty roster rules are confirmed ... All rules are active"."""
+    sys_, state, model, roster = home
+    before = roster.read_text(encoding="utf-8")
+    made_up = say("All duty roster rules are confirmed:\n- \"alex_visits\" runs Wednesday 20:00–23:00.\n"
+                  "All rules are active and will trigger as scheduled. No further action needed.")
+    model.script = [made_up, made_up]
+    (reply,) = await ask(sys_, state, "Confirm the roster rules")
+    assert reply["text"].startswith("I haven't changed or proposed anything")
+    assert "Proposals waiting for the owner's ✅ tap: none" in model.calls[0][0][-1].content
+    assert "Typing \"confirm\" or \"yes\" applies nothing" in model.calls[0][0][0].content
+    assert roster.read_text(encoding="utf-8") == before and sys_.store.query("SELECT * FROM proposals") == []
+    assert sys_.store.chat_history(str(CHAT), 2)[-1]["content"] == reply["text"], "the made-up text isn't remembered"
+
+    model.script = [call("propose_arming", state="armed_night"), say("Proposed.")]
+    await ask(sys_, state, "night mode")
+    model.script = [say("Tap ✅ Confirm under the proposal above; typing it doesn't apply it.")]
+    (reply,) = await ask(sys_, state, "is the night mode on now?")
+    assert "Tap ✅ Confirm under the proposal above" in reply["text"], "the honest pointer is kept"
+    assert "Proposals waiting for the owner's ✅ tap: Switch arming to Night." in model.calls[-1][0][-1].content
+    assert len(model.calls) == 5, "no second round for an answer that only points to the button"
+    assert sys_.arming.get()["source"] == "default"
+
+
+async def test_a_message_that_only_confirms_gets_a_fixed_reply_not_the_model(home):
+    """B-031, live 2026-10-28 21:55 after the first fix: a typed "Confirm" got
+    "✅ Confirmed: Alex's visit is now in the duty roster" from the model."""
+    sys_, state, model, _ = home
+    (reply,) = await ask(sys_, state, "Confirm")
+    assert reply["text"].startswith("Nothing is waiting for your confirmation") and model.calls == []
+    model.script = [call("propose_arming", state="armed_night"), say("Proposed.")]
+    await ask(sys_, state, "night mode")
+    for typed in ("yes", "OK!", "✅", "go ahead"):
+        (reply,) = await ask(sys_, state, typed)
+        assert reply["text"].startswith("Typing doesn't apply anything") and "Switch arming to Night." in reply["text"]
+    assert len(model.calls) == 2 and sys_.arming.get()["source"] == "default"
+
+
+@pytest.mark.parametrize("text, claims", [
+    ("I've proposed a new duty roster rule. Tap Confirm to activate.", True),
+    ("Tap Confirm to activate.", True),
+    ("All duty roster rules are confirmed. All rules are active.", True),
+    ("Alex has been added to the duty roster.", True),
+    ("Arming is now Away.", True),
+    ("I’ll alert you when a parcel appears on the desk.", True),
+    ("I have muted the kitchen for an hour.", True),
+    ("✅ Confirmed: Alex’s visit is now in the duty roster for Wednesdays 20:00–23:00.", True),
+    ("Confirmed: no changes were made.", True),
+    ("Alex is now on the roster.", True),
+    ("Yes, it's confirmed that Alex comes on Wednesdays.", False),
+    ("The 20:43 event was routine, no card: the person was seated.", False),
+    ("The house is armed Away, set by you.", False),
+    ("Alex is on the duty roster on Wednesdays 20:00–23:00.", False),
+    ("I didn't find any event near 21:15.", False),
+    ("Nothing has changed since your last question.", False),
+])
+def test_what_counts_as_claiming_a_change(text, claims):
+    from watchwise.chat.service import ChatService, ChatContext
+
+    ctx = ChatContext(store=None, nvr=None, config=None, proposals=None, watches=None, conversation="c", cameras=[])
+    assert ChatService._unbacked(ctx, text, waiting=[]) is claims
+
+
 
 
 async def test_text_in_events_is_data_and_proposals_never_apply_themselves(home):

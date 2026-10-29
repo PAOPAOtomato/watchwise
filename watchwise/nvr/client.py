@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -198,6 +199,40 @@ class NVRClient:
             for name, files in (library or {}).items()
             if name != "train" and isinstance(files, list)
         }
+
+    async def face_attempts(self) -> list[str]:
+        """File names of the NVR's recent face-recognition attempts (Frigate's
+        ``train`` folder): ``<event id>-<time>-<name or unknown>-<score>.webp``."""
+        library = await self._get_json("/faces")
+        return [str(f) for f in (library or {}).get("train") or []]
+
+    async def face_attempt(self, file: str) -> bytes:
+        """One attempt's face crop (served outside /api, like other clips)."""
+        path = f"/clips/faces/train/{quote(file, safe='')}"
+        try:
+            r = await self._client.get(path)
+        except httpx.HTTPError as exc:
+            raise NVRError(f"GET {path} failed: {exc}") from exc
+        if r.status_code >= 400:
+            raise NVRError(f"GET {path} -> {r.status_code}")
+        return r.content
+
+    async def train_face(self, name: str, training_file: str) -> dict[str, Any]:
+        """Move a recognition attempt's crop into ``name``'s Face Library
+        folder (D-071); the NVR then rebuilds its recognizer."""
+        path = f"/faces/train/{quote(name, safe='')}/classify"
+        try:
+            r = await self._client.post(f"{self.api}{path}", json={"training_file": training_file})
+        except httpx.HTTPError as exc:
+            raise NVRError(f"POST {path} failed: {exc}") from exc
+        try:
+            body = r.json()
+        except ValueError:
+            body = None
+        if r.status_code >= 500 or not isinstance(body, dict):
+            raise NVRError(f"POST {path} -> {r.status_code}: {r.text[:200]}")
+        ok = r.status_code < 400 and body.get("success", True) is not False
+        return {"success": ok, "message": str(body.get("message") or "")}
 
     async def register_face(self, name: str, image: bytes) -> dict[str, Any]:
         """Add a face to the NVR's Face Library from a whole image; the NVR

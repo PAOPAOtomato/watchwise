@@ -696,6 +696,54 @@ def test_a_room_typed_as_a_sentence_keeps_only_the_room():
         assert room_from_reply(typed) == room, typed
 
 
+ROSTER = """# The duty roster
+timezone: UTC
+
+entries:
+  - name: night_security_patrol
+    days: [mon, tue]
+    start: "22:00"   # wraps
+    end: "06:00"
+
+  # the bins
+  - name: bin_collection
+    days: [tue]
+
+  - name: Alex
+    kind: scheduled_activity
+    days:
+    - wed
+    start: '20:00'
+    end: '23:00'
+    cameras:
+    - webcam
+
+notes: kept
+"""
+
+
+def test_a_roster_rule_is_removed_keeping_the_rest_of_the_file(tmp_path):
+    """D-070: only that rule's lines go; comments, other rules and keys stay."""
+    from watchwise.setup.roster import plan_roster_removal
+
+    path = tmp_path / "duty_roster.yml"
+    path.write_text(ROSTER, encoding="utf-8")
+    entries = yaml.safe_load(ROSTER)["entries"]
+
+    middle = plan_roster_removal(path, entries[1]).content
+    assert "bin_collection" not in middle and "# the bins" in middle, "a comment above the next rule stays"
+    assert middle.startswith("# The duty roster\ntimezone: UTC\n") and 'start: "22:00"   # wraps' in middle
+    assert yaml.safe_load(middle)["entries"] == [entries[0], entries[2]] and middle.endswith("notes: kept\n")
+
+    last = plan_roster_removal(path, entries[2]).content
+    assert yaml.safe_load(last)["entries"] == entries[:2] and "\nnotes: kept\n" in last
+    first = plan_roster_removal(path, entries[0]).content
+    assert yaml.safe_load(first)["entries"] == entries[1:] and first.count("\n") == ROSTER.count("\n") - 4
+
+    with pytest.raises(RuntimeError, match="changed since this was proposed"):
+        plan_roster_removal(path, {**entries[2], "end": "22:00"})
+
+
 def test_a_roster_rule_is_appended_keeping_the_file_as_it_was(tmp_path):
     from watchwise.setup.roster import plan_roster_entry
 

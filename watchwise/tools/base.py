@@ -39,6 +39,7 @@ class ToolContext:
     roster: Any | None = None
     cameras: list[str] = field(default_factory=list)
     config_cache: dict[str, Any] = field(default_factory=dict)
+    clock: Callable[[], float] = time.time
 
     async def camera_names(self) -> list[str]:
         if self.cameras:

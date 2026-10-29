@@ -102,6 +102,7 @@ class AnthropicChat(ChatModel):
         messages: list[Message],
         *,
         tools: list[ToolSpec] | None = None,
+        tool_choice: str = "auto",
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> ChatResult:
@@ -120,6 +121,8 @@ class AnthropicChat(ChatModel):
                 {"name": t.name, "description": t.description, "input_schema": t.parameters}
                 for t in tools
             ]
+            if tool_choice == "none":
+                params["tool_choice"] = {"type": "none"}
         if self.cache:
             params["cache_control"] = {"type": "ephemeral"}
         if self.effort:

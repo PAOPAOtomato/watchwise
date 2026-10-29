@@ -259,10 +259,15 @@ class Pipeline:
                 self.metrics["own_summaries"] += 1
                 decision = await self._apply_summary(ctx, summary)
         if ctx.raw.get("type") == "end" and self._unknown_face(ctx):
-            raised = self.policy.unknown_face(decision)
+            # D-068: a rostered visitor's face isn't in the NVR's library.
+            expected = self._roster_reason(ctx)
+            raised = self.policy.unknown_face(decision, expected=expected)
             if raised is not decision:
-                self.metrics["raised_by_unknown_face"] += 1
-                logger.info("a face nobody matched in %s: raising it to an alert", ctx.review_id)
+                if expected:
+                    logger.info("a face nobody matched in %s, but %s: not raising it", ctx.review_id, expected)
+                else:
+                    self.metrics["raised_by_unknown_face"] += 1
+                    logger.info("a face nobody matched in %s: raising it to an alert", ctx.review_id)
                 decision = await self._decide(ctx, raised)
         return decision
 
@@ -483,18 +488,30 @@ class Pipeline:
             logger.exception("recent-Real lookup failed for %s", ctx.review_id)
             return True
 
-    def _roster_expects(self, ctx: AlertContext) -> bool:
-        """Does the duty roster expect a person on this camera right then? A
-        household member the NVR recognized counts the same (D-057)."""
-        if self._recognized.get(ctx.review_id):
-            return True
+    def _roster_expects(self, ctx: AlertContext) -> str:
+        """Why a person on this camera is expected right then, or "": the duty
+        roster, or a household member the NVR recognized (D-057). The reason
+        goes on the card (B-032)."""
+        names = self._recognized.get(ctx.review_id)
+        if names:
+            return f"recognized as {', '.join(names)} by Frigate's face recognition"
+        return self._roster_reason(ctx)
+
+    def _roster_reason(self, ctx: AlertContext) -> str:
+        """The duty roster's reason to expect a person here then, or ""."""
         if self.roster is None:
-            return False
+            return ""
         try:
-            return bool(self.roster.match(ctx.start_time, camera=ctx.camera, zones=ctx.zones, labels=["person"]))
+            hits = self.roster.match(ctx.start_time, camera=ctx.camera, zones=ctx.zones, labels=["person"])
         except Exception:
             logger.exception("duty roster lookup failed for %s", ctx.review_id)
-            return False
+            return ""
+        if not hits:
+            return ""
+        best = max(hits, key=lambda hit: hit["confidence"])
+        days = best["days"]
+        when = "every day" if days == "all" else " ".join(str(d).capitalize() for d in days)
+        return f"the duty roster expects {best['name']} ({when} {best['window'].replace('-', '–')})"
 
     async def _decide(self, ctx: AlertContext, decision: Decision, *, first: bool = False) -> Decision:
         """Record and dispatch a decision, with the summary of the whole event

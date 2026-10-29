@@ -38,9 +38,11 @@ class StubChat(ChatModel):
         messages: list[Message],
         *,
         tools: list[ToolSpec] | None = None,
+        tool_choice: str = "auto",
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> ChatResult:
+        tools = tools if tool_choice != "none" else None  # the tools it may use now
         self.calls.append((list(messages), tools))
         if self.script:
             step = self.script.pop(0)

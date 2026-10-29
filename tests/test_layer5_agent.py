@@ -510,6 +510,27 @@ def test_while_armed_only_the_roster_clears_a_person(policy, arming, labels, ros
     assert decision.disposition is expected
     if expected is Disposition.ESCALATED_HUMAN:
         assert "duty roster expects nobody" in decision.rationale
+    if roster_expects:
+        assert decision.rationale.startswith("expected while armed away: the duty roster expects someone now. ")
+
+
+@pytest.mark.parametrize("recently_real", [False, True])
+def test_a_card_says_what_let_a_person_through_while_armed(policy, recently_real):
+    """B-032, live 2026-10-28 21:05 (armed away, the duty roster expected
+    Alex): the card said only "you recently marked this kind of event real, so
+    it stays visible", not why a person was allowed."""
+    inv = Investigation(id="i", review_id="r", camera="c", verdict=Verdict.BENIGN,
+                        confidence=0.98, conclusion="the duty roster confirms a friend visiting.")
+    decision = policy.from_investigation(make_alert(labels=["person"]), None, inv, arming="armed_away",
+                                         roster_expects="the duty roster expects Alex (Wed 20:00–23:00)",
+                                         recently_real=recently_real)
+    assert decision.rationale.startswith(
+        "expected while armed away: the duty roster expects Alex (Wed 20:00–23:00). "
+        + ("You recently marked this kind of event real" if recently_real else "The duty roster confirms"))
+    assert "auto-downgraded" not in decision.rationale
+    home = policy.from_investigation(make_alert(labels=["person"]), None, inv, arming="armed_home",
+                                     roster_expects="the duty roster expects Alex (Wed 20:00–23:00)")
+    assert "expected while" not in home.rationale, "at home nothing needed letting through"
 
 
 @pytest.mark.parametrize("tags, investigate", [(["owner_real"], False), (["vehicle"], True)])
