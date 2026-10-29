@@ -240,6 +240,21 @@ call comes in, so keep it on a charger with auto-lock off.
 
 **In Watchwise**, run `/setup` again after adding cameras: it asks what each one
 looks at and which room it is in. Cameras in one room share one card per
-incident, and each camera recognizes residents best with a face photo from its
-own angle (`/face <name> <camera>`).
+incident. Frigate keeps one Face Library for all cameras: a clear, front-facing
+photo from any camera enrolls the resident for every camera. Choose the camera
+that sees the face clearly, close up and in good light; add some variety in
+camera view or lighting with further clear photos. [Frigate's guidance](https://docs.frigate.video/configuration/face_recognition/#creating-a-robust-training-set)
+recommends 5–10 photos per person as a minimum starting point, not a guarantee
+that every view will match.
+
+`/face` alone lists residents' photo counts, hints below 5 photos, and other
+names in the shared library. `/face <name> [camera]` previews a current frame;
+✅ Add sends it to Frigate's registration API to add the face. On a card raised
+for an unmatched face, 👤 That was &lt;resident&gt; offers up to 3 residents and
+previews a face crop Frigate tried on the event. Check that the crop clearly
+shows the right person: ✅ Add moves it into that resident's folder through
+Frigate's training API. Both paths write to Frigate only after ✅ Add, and
+✖️ Cancel adds nothing. Their previews go through Telegram unless
+`notify.telegram.send_images` is `false`, which sends only text and buttons.
+See [Faces across your cameras](../README.md#faces-across-your-cameras).
 

@@ -184,23 +184,32 @@ test('replay refreshes answers across events and preserves learning safeguards',
   await page.locator('#question').fill('Does memory recognize the cleaner?');
   await page.locator('#question').press('Enter');
   await expect(page.locator('#conversation .assistant-message').last()).toContainText('another person or behavior can match');
-  await expect(page.locator('#conversation .assistant-message').last()).toContainText('does not automatically veto');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('vetoes memory hold-backs for that signature');
   await page.locator('#question').fill('Can I use installed chat?');
   await page.locator('#question').press('Enter');
-  await expect(page.locator('#conversation .assistant-message').last()).toContainText('Installed conversational Ask Watchwise chat is planned');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('Ask Watchwise works in Telegram');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('duty-roster additions or removals');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('Only tapping ✅ Confirm applies');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('typing “confirm”, “yes” or “ok” applies nothing');
+  await expect(page.locator('#conversation .assistant-message').last()).toContainText('After 6 quiet hours');
 });
 
-test('live verification is separate from story values and exposes the remaining limits', async ({ page }) => {
-  await page.getByRole('link', { name: 'Read what passed in the real-world test' }).click();
+test('installed Telegram and camera setup are separate from the simulated story', async ({ page }) => {
+  await page.getByRole('link', { name: 'Explore Watchwise on your phone' }).click();
   await expect(page).toHaveURL(/#live-verification$/);
-  await expect(page.locator('.verification-record')).toContainText('One indoor camera setup');
+  await expect(page.locator('.verification-record')).toContainText('Add or remove duty-roster rules');
+  await expect(page.locator('.verification-record')).toContainText('Each chat proposal needs ✅ Confirm');
+  await expect(page.getByRole('link', { name: 'Read the verification records' })).toHaveAttribute('href', 'https://github.com/PAOPAOtomato/watchwise/blob/main/docs/verification.md');
   await page.locator('.verification-limits summary').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('.verification-limit-grid')).toBeVisible();
-  await expect(page.locator('.verification-limits')).toContainText('does not yet receive arming state');
-  await expect(page.locator('.verification-limits')).toContainText('phone playback still needs');
-  await expect(page.locator('.verification-limits')).toContainText('exceeded the model’s context');
-  await expect(page.locator('.verification-limits')).toContainText('exceeded 16 GB');
+  await expect(page.locator('.verification-limits')).toContainText('The screener receives the arming state');
+  await expect(page.locator('.verification-limits')).toContainText('A roster rule does not clear the person by itself');
+  await expect(page.locator('.verification-limits')).toContainText('Clip opens Frigate’s recording page');
+  await expect(page.locator('.verification-limits')).toContainText('Whole-event summaries can raise an earlier decision, never lower it');
+  await expect(page.locator('.verification-limits')).toContainText('nvidia-16gb profile uses one qwen3-vl:8b-instruct model');
+  await expect(page.locator('.verification-limits')).toContainText('write to Frigate only after ✅ Add');
+  await expect(page.locator('.verification-limits')).toContainText('send previews through Telegram when images are enabled');
   await expect(page.locator('.verification-limits summary')).toBeFocused();
 });
 

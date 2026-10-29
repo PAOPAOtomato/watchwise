@@ -58,7 +58,7 @@ One `qwen3-vl:8b-instruct` played every role.
 | `/arm` | Arming was switched from Telegram. |
 | More cameras | Four streams ran at once: the USB camera, the laptop's built-in camera, and two iPhones pushing RTMP from Larix Broadcaster into go2rtc. The built-in camera opened only without explicit size and frame-rate options. |
 | Rooms | With two cameras in one room, a walk through it produced one card naming both cameras; events in other rooms got their own cards. The test also showed a card taking new events for as long as someone stayed in the room; the next commit limits a card to five minutes and gives standout events their own card. |
-| Faces from new angles | A camera with no photo from its own angle raised unknown-face alerts for a person whom another camera recognized as a resident at the same moment; it recognized the resident later in the test. |
+| Faces from new angles | One camera raised unknown-face alerts for a person whom another camera recognized as a resident at the same moment; it recognized the resident later in the test. Frigate uses the same Face Library across cameras. This observation shows recognition varying between views, not a need to enroll separately for each camera. |
 
 ## October 27, 2026 (`f8eb33f`)
 
@@ -66,3 +66,32 @@ One `qwen3-vl:8b-instruct` played every role.
 |---|---|
 | Ask Watchwise | Questions in Telegram were answered from Watchwise's records by the local model. An arming switch and a duty-roster rule were proposed with ✅ Confirm and ✖️ Cancel, then cancelled; nothing changed. Confirmed changes and photos in answers were covered by automated tests only. |
 | Watches | A watch for someone falling did not run for a recognized resident and, once it did, matched while a person sat at a desk: the model read a lying posture into sampled frames. Fall detection is not supported. The watch check that followed asks a separate yes/no question with evidence once per event, also for recognized residents. |
+
+## October 28, 2026 (`ebab8d9`)
+
+Implementation: [ebab8d9](https://github.com/PAOPAOtomato/watchwise/commit/ebab8d9aa9c1f73de902ae2ead86e24fa30efca7).
+The following interactions were exercised live in Telegram on a phone, using
+the setup above. Questions, answers, proposals, and answer photos passed through
+Telegram.
+
+| Capability | Evidence and scope |
+|---|---|
+| Questions about recorded events | “Why didn't you tell me about the HH:MM one?” was answered from the records, with a photo. |
+| Confirmed arming change | A chat request proposed an arming switch; tapping ✅ Confirm applied it. |
+| Duty-roster changes | A rule was added by chat and two rules were removed by chat, using proposals and ✅ Confirm. These changes wrote the local duty-roster file with a backup. |
+| Parcel watch | A “tell me when a parcel appears on the chair” watch said no for two events without a parcel, then matched when a parcel was placed there. This establishes those observations, not general parcel-detection accuracy. |
+| Armed-card explanations | Cards named the matching duty-roster entry or the resident recognized by Frigate as the reason the investigation could clear a person while armed. |
+| Typed confirmation | Typing “Confirm” received the fixed reply directing the owner to the ✅ Confirm button; the typed message applied nothing. |
+
+With a duty-roster rule in place, the investigator cleared a rostered arrival
+but still sent other arrivals to the owner. A matching rule supplies expected
+context and permits a benign investigation to clear a person while armed; it
+does not clear the event by itself.
+
+The 👤 face-teaching button, `/face` library status, and context trimming in long
+conversations were **not verified live**. They are implemented in this commit
+and covered by automated tests with stand-ins. The new face-teaching path
+previews an event's saved face crop through Telegram when image sending is
+enabled; only ✅ Add calls Frigate's training API to move the crop into the
+resident's shared Face Library folder. These code and automated checks are
+separate from the phone observations above.

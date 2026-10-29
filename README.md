@@ -153,14 +153,16 @@ several cameras, which room it is in), who lives here, what should always alert
 you, and what to assume while no arming state is set. It shows the plan and
 writes it to your configuration only when you tap ✅ Apply, after backing up the
 file; ↩️ Undo puts the old file back. The running service uses the answers at
-once. It then offers to add face photos and a recognition check: walk past a
-camera, and it tells you whether Frigate recognized you.
+once. It then offers to add face photos to the library shared by all cameras and
+a recognition check: walk past a camera, and it tells you whether Frigate
+recognized you.
 
 | Command | What it does |
 |---|---|
 | `/setup` | describe your cameras, rooms, residents, always-alert rules, and arming default |
 | `/arm` | show or switch arming: Home, Away, Night, Off (also `/arm away`) |
-| `/face <name> [camera]` | add a photo to Frigate's Face Library from what the camera sees now, after you confirm |
+| `/face` | list residents' photo counts in the shared Face Library, hints below 5 photos, and other names in the library |
+| `/face <name> [camera]` | preview the camera's current frame in Telegram; ✅ Add writes a photo to Frigate's Face Library for all cameras |
 | `/new` | start a new conversation with Ask Watchwise |
 | `/cancel` | stop a `/setup` in progress |
 | `/help` | the buttons and commands |
@@ -173,6 +175,12 @@ the card instead of buzzing again. A card takes a room's events for five minutes
 from its first one; a later event, a more serious one, or one after you answered
 the card gets its own card.
 
+When an investigation clears a person while armed Away or Night, the card names
+the reason that allowed it: the duty-roster entry with its days and time window,
+or the resident recognized by Frigate. A roster match gives the investigation
+context; it does not clear a person on its own. During a rostered visit, a face
+Frigate cannot match is noted on a held-back event instead of raising it by itself.
+
 | Button | What it does |
 |---|---|
 | ✅ Expected | records benign feedback and reinforces a pattern; holding back later events also requires the correction, similarity, and trust thresholds below |
@@ -180,6 +188,7 @@ the card gets its own card.
 | 🔍 Look closer | requests a full investigation when one has not already run |
 | 🔇 Snooze | mutes the cards of that camera and its room for an hour by default; processing and recording continue |
 | ❓ Why | explains the stored decision, matched memory, and available investigation evidence |
+| 👤 That was &lt;resident&gt; | on a card raised for an unmatched face, preview a face crop from that event; ✅ Add teaches Frigate's shared Face Library |
 | ↩️ Undo | reverses the correction and its count/trust effects; merged descriptive text can remain |
 | ▶️ Clip | opens Frigate's review page when `nvr.web_url` is configured |
 
@@ -197,6 +206,34 @@ and what you type in `/setup`. Long polling needs no incoming public endpoint. B
 default, only `alerted` and `escalated_human` decisions start cards; a card
 already sent while analyzing can later update to a downgraded result.
 
+### Faces across your cameras
+
+Frigate keeps **one Face Library for all cameras**. Each person's folder holds
+face crops; Frigate averages their embeddings into one face embedding for
+comparisons from every camera.
+Enroll a resident with a clear, front-facing photo from any camera; the enrollment
+is available to every camera. Add a few more clear photos with some variety in
+camera view or lighting to help recognition. [Frigate's guidance](https://docs.frigate.video/configuration/face_recognition/#creating-a-robust-training-set)
+recommends 5–10 images per person as a minimum starting point; photo quality
+matters, and enrollment does not guarantee a match in every view. Enable face
+recognition in Frigate and list residents through `/setup`.
+
+Send `/face` alone to see each resident's photo count, a prompt for more clear
+photos when the count is below 5, and other names in the library. To enroll,
+send `/face <name> [camera]`, face the camera alone in good light, and inspect the
+current-frame preview. ✅ Add sends that frame to Frigate's registration API to
+add the face to the shared library; ✖️ Cancel leaves it unchanged.
+
+A card raised because Frigate matched a face to nobody offers
+**👤 That was &lt;resident&gt;** for up to 3 configured residents. Tap a name to
+preview an available face crop Frigate tried on that card's event, then check
+that it clearly shows the right person. ✅ Add calls Frigate's training API to
+move that crop into the resident's Face Library folder; ✖️ Cancel adds nothing.
+If Frigate no longer has a crop from the event, use `/face` for a fresh photo.
+Both enrollment paths send their previews through Telegram unless
+`notify.telegram.send_images` is `false` (then only text and buttons are sent).
+Both write to Frigate only after ✅ Add.
+
 ### Ask Watchwise
 
 Send the bot an ordinary message, or reply to an alert card to ask about that
@@ -207,20 +244,37 @@ event:
 * “Why didn't you tell me about the 21:31 one?”: the decision, the stage that
   made it, and the evidence.
 * “The cleaner comes Thursdays 1–4 pm”: a proposed duty-roster rule.
+* “Remove the cleaner rule”: a proposal to remove that duty-roster rule.
 * “Tell me when the parcel is picked up”: a proposed watch.
 
 The `chat` role's model answers by looking things up: Watchwise's own records
 (every event it judged, with its verdict and summary) and Frigate's event list.
-It cannot change anything itself. A duty-roster rule, an arming switch, muting a
-camera or room, or a watch arrives as a proposal with ✅ Confirm and ✖️ Cancel;
-only your tap applies it. A roster rule is appended to the roster file, in your
-local time zone, after a backup. Unconfirmed proposals expire after an hour.
+It cannot change anything itself. Adding or removing a duty-roster rule, switching
+arming, muting a camera or room, or setting a watch arrives as a proposal with
+✅ Confirm and ✖️ Cancel. **Only tapping ✅ Confirm applies the proposed change.**
+Typing “confirm”, “yes” or “ok” changes nothing; the bot replies with an instruction
+to use the button. Unconfirmed proposals expire after an hour.
+
+New roster rules use your local time zone. You can remove any rule by name; if
+several share a name, Watchwise asks which one. A confirmed removal removes only
+the selected rule. Roster edits keep a backup of the file. A rule tells the
+investigator that a person is expected at those cameras and times, so while
+armed it may judge the visit routine instead of asking you. The rule itself does
+not clear the person; the investigation can still request your attention.
+
+After 6 quiet hours, your next question starts a fresh conversation. `/new` starts
+over at any time. In long conversations, the oldest turns are left out of the
+model's prompt to make room within its context budget. Your questions, answers,
+and any answer photos pass through Telegram; when the `chat` role uses a cloud
+provider, its prompts and retrieved text/tool results also go to that provider.
 
 A watch is checked once per Frigate event on the cameras it names, when the
 event ends: the vision model is asked, on a few frames spread across the event,
 whether they clearly show what you asked for. A match alerts once and ends the
 watch; otherwise it runs for the time you chose (24 hours by default, at most a
-week). Watches include residents Frigate recognizes.
+week). Watches include residents Frigate recognizes. A matching card says
+“👀 You asked to be told when …”; matching your request does not mean the event
+was judged suspicious.
 
 ## How it works
 
@@ -254,15 +308,18 @@ HUMAN REVIEW  one card per room -> corrections -> memory; questions in chat
   These are scheduling settings, not delivery guarantees. A later report
   re-screens only if labels or zones changed.
 * **Arming-aware.** The vision model is told the arming state. While armed away
-  or for the night, a person in view can't be dismissed except by a duty-roster
-  rule or a recognized resident; it alerts. Without an arming state, Watchwise
-  assumes `armed_away`; switch with `/arm` or set the default in `/setup`.
+  or for the night, a person in view alerts and is investigated. A benign
+  investigation can clear the person only with a matching duty-roster entry or
+  a resident recognized by Frigate; that reason appears on the card. A roster
+  rule alone does not dismiss an event. Without an arming state, Watchwise assumes
+  `armed_away`; switch with `/arm` or set the default in `/setup`.
 * **Faces.** With Frigate's face recognition on and residents listed in
   `faces.household` (by `/setup`), a resident Frigate names while you're home is
   held back with no model call. A watch, or an always-alert rule worded “anyone”
   or “any person”, is still asked about them once when the event ends. A face
-  Frigate saw but matched to nobody raises the event when it ends. Recognition
-  runs in Frigate; a recognized name appears in card text.
+  Frigate saw but matched to nobody raises a held-back event when it ends, except
+  during a rostered visit, when it is noted instead. Recognition runs in Frigate
+  against the shared Face Library; a recognized name appears in card text.
 * **Rooms.** `cameras.<name>.room` groups cameras into rooms: one card per
   incident per room, a tap teaches every camera on the card, and an
   investigation reads another camera in the same room as another angle, not as
@@ -277,9 +334,10 @@ HUMAN REVIEW  one card per room -> corrections -> memory; questions in chat
   reasons, confidence scores, matched memory, and investigation traces when an
   investigation ran. Patterns retain correction and agreement/disagreement counts.
 * **Frigate stays in charge of video.** Watchwise reads Frigate's HTTP API and
-  MQTT, writes its own database, and exposes its own API. Its one write to
-  Frigate is `/face`, which adds a photo to the Face Library after you confirm.
-  Removing Watchwise leaves Frigate's recordings and configuration intact.
+  MQTT, writes its own database, and exposes its own API. `/face` enrollment and
+  👤 face teaching write to Frigate's Face Library only after ✅ Add; their
+  previews pass through Telegram when image sending is enabled. Removing
+  Watchwise leaves Frigate's recordings and configuration intact.
 
 ### Learning thresholds and safeguards
 
@@ -357,7 +415,7 @@ a stdio server (`watchwise-mcp`, requiring `pip install -e ".[mcp]"`) for Claude
 Desktop, Claude Code, Cursor, or another MCP client. Ask Watchwise in Telegram
 uses its own tool set; it has no HTTP endpoint.
 
-## Development
+## Run the checks
 
 ```bash
 pip install -e ".[dev,anthropic,mcp,agent]"
