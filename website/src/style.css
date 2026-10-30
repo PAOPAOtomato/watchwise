@@ -6,7 +6,7 @@
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; scroll-padding-top: 28px; }
   body { margin: 0; -webkit-font-smoothing: antialiased; }
-  button, input { font: inherit; }
+  button, input, select { font: inherit; }
   button, a, summary { -webkit-tap-highlight-color: transparent; }
   button { cursor: pointer; }
   button, a { touch-action: manipulation; }
@@ -14,7 +14,7 @@
   a { color: inherit; text-decoration: none; }
   img { display: block; max-width: 100%; }
   h1, h2, h3, p { margin: 0; }
-  button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3px solid #647b35; outline-offset: 4px; }
+  button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 3px solid #647b35; outline-offset: 4px; }
   button { border: none; }
   [hidden] { display: none !important; }
   ::selection { background: var(--lime); color: var(--ink); }
@@ -32,6 +32,7 @@
   .text-link { display: inline-flex; align-items: center; gap: 17px; font-size: 12px; font-weight: 700; background: transparent; padding: 12px 0; }
   .text-link:hover, .header-cta:hover, .site-footer a:hover { color: #678544; }
   .mobile-break { display: none; }
+  html:lang(zh-CN) { font-family: 'Manrope Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; }
 }
 
 @layer layout {
@@ -44,6 +45,9 @@
   .site-header nav a:hover { color: var(--ink); }
   .header-cta { border: 1px solid #cbd2c5; font-size: 12px; font-weight: 700; padding: 11px 16px; border-radius: 5px; }
   .header-cta span { margin-left: 17px; }
+  .header-actions { display: flex; align-items: center; gap: 12px; }
+  .header-cta .header-cta-prefix { margin-left: 0; }
+  .language-picker select { color: var(--ink); background: var(--paper); border: 1px solid #cbd2c5; border-radius: 5px; padding: 10px 6px; font-size: 12px; cursor: pointer; min-height: 44px; }
   .hero { text-align: center; padding-top: 65px; padding-bottom: 83px; }
   .hero .eyebrow { display: flex; align-items: center; justify-content: center; gap: 10px; color: #65745d; font-size: 10px; }
   h1 { font-size: clamp(42px, 5vw, 65px); line-height: 1.12; font-weight: 550; letter-spacing: -3.4px; margin: 25px auto 23px; }
@@ -379,9 +383,8 @@
     .product-title { gap: 7px; font-size: 11px; }
     .product-title img { width: 20px; height: 20px; }
     .toolbar-divider { display: none; }
-    .scenario-label { display: none; }
+    .scenario-label { display: block; flex-basis: 100%; font-size: 8px; letter-spacing: .6px; color: #65735c; padding-left: 27px; text-transform: uppercase; }
     .product-title { flex-wrap: wrap; row-gap: 3px; max-width: calc(100% - 85px); }
-    .product-title::after { content: 'ILLUSTRATED SCENARIO'; flex-basis: 100%; font-size: 8px; letter-spacing: .6px; color: #65735c; padding-left: 27px; }
     .reset-button { font-size: 10px; }
     .reset-button > span { font-size: 15px; }
     .workbench { display: flex; flex-direction: column; min-height: 0; }
@@ -483,6 +486,15 @@
     .hero .eyebrow { font-size: 8px; }
     .terminal-body { padding-left: 18px; padding-right: 18px; }
   }
+  @media (max-width: 700px) {
+    .site-header { height: auto; min-height: 86px; gap: 10px; padding-top: 16px; padding-bottom: 16px; }
+    .header-actions { gap: 8px; }
+    .header-cta-prefix { display: none; }
+    .header-cta { padding: 10px 8px; min-height: 44px; display: inline-flex; align-items: center; }
+    .header-cta span { margin-left: 6px; }
+    .language-picker select { max-width: 96px; }
+    :lang(zh-CN) h1 { font-size: clamp(29px, 7.7vw, 45px); }
+  }
   @media (pointer: coarse), (max-width: 700px) {
     .reset-button, .terminal-toolbar button, .undo-button, .suggestions button, .site-footer a, .learning-nudge .text-link { min-height: 44px; }
     .terminal-toolbar button { min-width: 44px; }
@@ -495,4 +507,8 @@
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
     .button:hover { transform: none; }
   }
+  :lang(zh-CN) :is(h1, h2, h3, .eyebrow) { letter-spacing: 0; }
+  :lang(zh-CN) h1 { line-height: 1.35; }
+  :lang(zh-CN) h1 br { display: initial; }
+  :lang(zh-CN) h2 { line-height: 1.4; }
 }

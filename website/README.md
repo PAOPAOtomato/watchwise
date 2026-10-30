@@ -28,6 +28,16 @@ npm test
 
 Linux CI uses `npx playwright install --with-deps chromium` to install browser system dependencies too. The [website workflow](../.github/workflows/website.yml) runs the production build and Playwright checks when website files or that workflow change; it does not replace the Python workflow.
 
+## Languages
+
+Visitors can select **English** or **简体中文** in the header. English is the default. A selection is remembered in browser storage when available; `?lang=en` or `?lang=zh-CN` takes priority for a shared link, including links such as `/?lang=zh-CN#experience`. Switching still works when storage is unavailable.
+
+Switching language preserves the selected event, tab, corrections, replay state, open evidence, and question draft. Earlier Watchwise answers are rendered in the selected language, while visitors' original messages remain unchanged. Suggested questions and typed questions understand English and Simplified Chinese keywords, with deterministic responses in the selected interface language. Questions remain in browser memory; only the language preference is stored across visits.
+
+The translation covers page copy, event stories, evidence, answers, controls, accessible names, image descriptions, and page metadata. Architecture and installation links point to the corresponding README language. Commands, configuration keys, model names, and numerical scenario data stay the same. Chinese uses system fonts, so language selection adds no external font or translation requests.
+
+English page copy lives in `index.html` and `src/main.js`. [`src/locales/zh-CN.js`](src/locales/zh-CN.js) maps English UI text to Chinese and supplies event-text overlays and answers; [`src/i18n.js`](src/i18n.js) applies the selected language without replacing the static markup. Update the translation whenever English text changes, including accessible labels. Both languages share the event mechanics in `src/scenario.js`. Run the browser checks for both languages, including persistence, switching during a corrected story, typed questions, keyboard controls, and mobile layouts.
+
 ## Structure and source of truth
 
 | File | Purpose |
@@ -35,6 +45,8 @@ Linux CI uses `npx playwright install --with-deps chromium` to install browser s
 | [`index.html`](index.html) | Product story, navigation, installation copy, and accessible interface structure |
 | [`src/main.js`](src/main.js) | Selected event, panels, correction/replay/reset, conversation, and clipboard controls |
 | [`src/scenario.js`](src/scenario.js) | Authored event records, evidence, routing explanations, and deterministic question responses |
+| [`src/i18n.js`](src/i18n.js) | Language selection, browser preference, URL override, static copy, and localized README links |
+| [`src/locales/zh-CN.js`](src/locales/zh-CN.js) | Simplified Chinese page text, event descriptions, and question responses |
 | [`src/style.css`](src/style.css) | Responsive layout, focus states, typography, and reduced-motion behavior |
 | [`public/scenes/`](public/scenes/) | Original SVG scene illustrations |
 | [`vercel.json`](vercel.json) | Static build settings and response headers |

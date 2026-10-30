@@ -1,3 +1,5 @@
+import { eventText, correctedCleanerText, answerChinese } from './locales/zh-CN.js';
+
 // These authored records illustrate the repository's routing behavior, not live
 // detections or measured model output. No camera or inference API is called.
 export const events = [
@@ -65,7 +67,7 @@ export const events = [
   },
 ];
 
-export function getEvent(id, corrected = false) {
+function getEnglishEvent(id, corrected = false) {
   if (id === 'return') {
     return {
       ...events[2], id: 'return', title: 'The next matching visit', short: 'Next visit', time: 'NEXT THU', stamp: 'NEXT THU · 18:53:09',
@@ -93,15 +95,33 @@ export function getEvent(id, corrected = false) {
   };
 }
 
-export function answerQuestion(question, event, corrected, replayed) {
+export function getEvent(id, corrected = false, language = 'en') {
+  const record = getEnglishEvent(id, corrected);
+  if (language !== 'zh-CN') return record;
+  return { ...record, ...eventText[record.id], ...(record.id === 'cleaner' && corrected ? correctedCleanerText : {}) };
+}
+
+function questionIntent(question) {
   const q = question.toLowerCase();
-  if (/filter|quiet|suppress|noise/.test(q)) return `In this story, passing headlights were resolved by a trusted gate pattern, and the courier by vision screening.${replayed ? ' The later matching visit was also resolved by memory, after your correction.' : ''} ${corrected ? 'You reviewed the first cleaner visit yourself.' : 'The cleaner still needs your context.'} The unexpected visitor remains flagged. All of those records are available in the event strip.`;
-  if (/evidence|proof|frame|camera|confiden/.test(q)) return `${event.title}: ${event.trace.map((step) => step.title).join('; ')}. The ${event.id === 'cleaner' && corrected ? 'original ' : ''}recorded confidence is ${event.confidence}. These are simulated values for this illustrated story, not measured field performance. Open Evidence for the full record.`;
-  if (/learn|correct|memory|recogn|cleaner|next|trust/.test(q)) return corrected
+  if (/filter|quiet|suppress|noise|过滤|拦下|静默|安静|忽略|误报/.test(q)) return 'filter';
+  if (/evidence|proof|frame|camera|confiden|证据|依据|画面|帧|摄像头|置信/.test(q)) return 'evidence';
+  if (/learn|correct|memory|recogn|cleaner|next|trust|学习|纠正|记忆|识别|保洁|下次|信任/.test(q)) return 'memory';
+  if (/chat|install|telegram|聊天|安装|对话/.test(q)) return 'chat';
+  if (/local|cloud|privacy|data|model|本地|云端|隐私|数据|模型/.test(q)) return 'privacy';
+  if (/why|alert|happen|visit|decision|explain|expected|summary|为什么|为何|提醒|告警|发生|来访|决策|解释|预期|总结/.test(q)) return 'decision';
+  return 'fallback';
+}
+
+export function answerQuestion(question, event, corrected, replayed, language = 'en') {
+  const intent = questionIntent(question);
+  if (language === 'zh-CN') return answerChinese(intent, event, corrected, replayed);
+  if (intent === 'filter') return `In this story, passing headlights were resolved by a trusted gate pattern, and the courier by vision screening.${replayed ? ' The later matching visit was also resolved by memory, after your correction.' : ''} ${corrected ? 'You reviewed the first cleaner visit yourself.' : 'The cleaner still needs your context.'} The unexpected visitor remains flagged. All of those records are available in the event strip.`;
+  if (intent === 'evidence') return `${event.title}: ${event.trace.map((step) => step.title).join('; ')}. The ${event.id === 'cleaner' && corrected ? 'original ' : ''}recorded confidence is ${event.confidence}. These are simulated values for this illustrated story, not measured field performance. Open Evidence for the full record.`;
+  if (intent === 'memory') return corrected
     ? 'Your correction reinforced a pattern that already had two reviews. It now has 3 corrections and trust 0.75; the later event’s similarity 0.95 meets the default 0.86 requirement. The signature uses camera, labels, and zones, so another person or behavior can match. In the installed product, Alert me lowers trust and vetoes memory hold-backs for that signature for 30 days by default (gate.real_veto_days). This story shows Expected feedback. The roster is unchanged.'
     : 'The cleaner’s activity pattern already has 2 corrections, below the default threshold of 3. It also needs trust at least 0.70 and similarity at least 0.86. Select the cleaner and mark the visit as expected. That adds your judgment to memory; it does not change the duty roster or recognize identity or behavior.';
-  if (/chat|install|telegram/.test(q)) return 'These answers are authored for the selected browser scenario; your questions stay in this page. Ask Watchwise works in Telegram: ask questions or reply to cards, and propose duty-roster additions or removals, arming changes, muting, or “tell me when…” watches. Only tapping ✅ Confirm applies a chat proposal; typing “confirm”, “yes” or “ok” applies nothing. After 6 quiet hours a question starts afresh; /new starts over any time. Installed messages and enabled photos pass through Telegram; a cloud chat role also receives questions and retrieved text.';
-  if (/local|cloud|privacy|data|model/.test(q)) return 'Watchwise runs models locally by default. In a hybrid profile, text can go to your chosen cloud provider while frames stay local; a full cloud profile sends images and text. Telegram also relays messages and enabled photos or face previews. This website uses only simulated, illustrated records in your browser—no cameras, model calls, or API keys.';
-  if (/why|alert|happen|visit|decision|explain|expected|summary/.test(q)) return event.answer;
+  if (intent === 'chat') return 'These answers are authored for the selected browser scenario; your questions stay in this page. Ask Watchwise works in Telegram: ask questions or reply to cards, and propose duty-roster additions or removals, arming changes, muting, or “tell me when…” watches. Only tapping ✅ Confirm applies a chat proposal; typing “confirm”, “yes” or “ok” applies nothing. After 6 quiet hours a question starts afresh; /new starts over any time. Installed messages and enabled photos pass through Telegram; a cloud chat role also receives questions and retrieved text.';
+  if (intent === 'privacy') return 'Watchwise runs models locally by default. In a hybrid profile, text can go to your chosen cloud provider while frames stay local; a full cloud profile sends images and text. Telegram also relays messages and enabled photos or face previews. This website uses only simulated, illustrated records in your browser—no cameras, model calls, or API keys.';
+  if (intent === 'decision') return event.answer;
   return `I can explain the selected ${event.short.toLowerCase()} event, its evidence, the filtered activity, or how corrections affect memory. Try “Why did you alert me?” or “What evidence did you use?” Answers here are limited to this illustrated event record.`;
 }
