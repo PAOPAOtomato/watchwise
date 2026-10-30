@@ -6,6 +6,7 @@
     watchwise demo        a simulated day through the full cascade, no cameras needed
     watchwise profiles    list the hardware profiles
     watchwise telegram    link a Telegram chat for phone alerts, or send a test card
+    watchwise export      write a recorded run as a trace for the web demo (people blurred)
     watchwise serve       run the service (the default; old-style flags still work)
 
 Output is plain ASCII so it renders on any console.
@@ -26,7 +27,7 @@ from typing import Any
 
 import yaml
 
-COMMANDS = ("serve", "doctor", "init", "check", "demo", "profiles", "telegram")
+COMMANDS = ("serve", "doctor", "init", "check", "demo", "profiles", "telegram", "export")
 DEFAULT_CONFIG = Path("config/watchwise.yml")
 
 
@@ -702,6 +703,52 @@ def cmd_demo(args: argparse.Namespace) -> int:
     return 1 if result.genuine_hidden else 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    import time
+
+    from watchwise.config import WatchwiseConfig
+    from watchwise.memory.store import Store
+    from watchwise.nvr.client import NVRClient
+    from watchwise.trace import ExportOptions, TraceExporter, parse_when
+
+    path = resolve_config_path(args.config)
+    config = WatchwiseConfig.load(path)
+    now = time.time()
+    try:
+        since = parse_when(args.since, now)
+        until = parse_when(args.until, now) if args.until else now
+        aliases = dict(item.split("=", 1) for item in args.alias)
+    except ValueError as exc:
+        print(f"export: {exc} (times look like -6h, -2d or '2026-10-30 12:00'; aliases like Ray=Resident A)")
+        return 2
+    options = ExportOptions(since=since, until=until, frames=args.frames, names=args.names, aliases=aliases,
+                            machine=args.machine, title=args.title)
+    store = Store(config.memory.db_path)
+
+    async def run() -> Any:
+        nvr = NVRClient(config.nvr) if args.frames != "none" else None
+        try:
+            return await TraceExporter(store, config, nvr, options).run(Path(args.out))
+        finally:
+            if nvr is not None:
+                await nvr.aclose()
+
+    try:
+        result = asyncio.run(run())
+    finally:
+        store.close()
+    print(f"Wrote {result.path}: {result.events} events, {result.messages} messages, {result.frames} frames"
+          + (f", {result.boxes_blurred} people pixelated" if args.frames == "blurred" else ""))
+    for event, why in result.frames_left_out.items():
+        print(f"  no frame for {event}: {why}")
+    if result.names:
+        print("Names replaced: " + ", ".join(f"{real} -> {alias}" for real, alias in result.names.items()))
+    if result.roles_kept:
+        print("Kept as roles (not names): " + ", ".join(result.roles_kept) + "  (replace one with --alias NAME=ALIAS)")
+    print("Before publishing: read trace.json, and look at every frame in frames/.")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -770,6 +817,20 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--real-models", action="store_true", help="use the configured models")
     demo.add_argument("--config", default=None)
     demo.set_defaults(func=cmd_demo)
+
+    export = sub.add_parser("export", help="write a recorded run as a trace for the web demo")
+    export.add_argument("--config", default=None)
+    export.add_argument("--out", required=True, help="the folder for trace.json and frames/")
+    export.add_argument("--since", default="-24h", help="start: -6h, -2d or '2026-10-30 12:00' (local)")
+    export.add_argument("--until", default=None, help="end (default: now)")
+    export.add_argument("--frames", choices=["blurred", "none", "full"], default="blurred",
+                        help="people pixelated (default), no frames, or untouched (private use only)")
+    export.add_argument("--names", choices=["replaced", "kept"], default="replaced")
+    export.add_argument("--alias", action="append", default=[], metavar="NAME=ALIAS",
+                        help="replace one more name, e.g. --alias cleaner=Visitor C")
+    export.add_argument("--machine", default=None, help="labels the measured timings, e.g. 'GCP L4'")
+    export.add_argument("--title", default=None)
+    export.set_defaults(func=cmd_export)
 
     profiles = sub.add_parser("profiles", help="list hardware profiles")
     profiles.set_defaults(func=cmd_profiles)

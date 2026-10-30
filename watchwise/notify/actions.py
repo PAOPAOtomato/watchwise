@@ -21,6 +21,7 @@ from watchwise.memory.feedback import FeedbackLoop
 from watchwise.memory.long_term import PatternLibrary
 from watchwise.memory.store import Store
 from watchwise.notify.presenter import (
+    SPOT_CHECK_KEYBOARD,
     STAGE_LABELS,
     TEXT_LIMIT,
     being_investigated,
@@ -84,17 +85,28 @@ class ActionHandler:
         arg: str | None = None,
         reviewer: str = "telegram",
         group: list[str] | None = None,
+        spot_check: bool = False,
     ) -> ActionOutcome:
         """A button on the card of ``review_id``. ``group``: every event the
-        card shows (a room card, D-062), the card's own first."""
+        card shows (a room card, D-062), the card's own first. ``spot_check``:
+        the card is a held-back event the digest sent back (M2-7)."""
         row = self.store.get_alert(review_id)
         if row is None:
             return ActionOutcome("This alert is no longer known.")
         others = [r for r in (self.store.get_alert(g) for g in (group or [])[1:]) if r is not None]
         if action in ("ok", "real"):
-            return self._feedback(row, "benign" if action == "ok" else "suspicious", reviewer, others)
+            outcome = self._feedback(row, "benign" if action == "ok" else "suspicious", reviewer, others)
+            if spot_check:
+                right = action == "ok"
+                outcome.toast = "Thanks: holding it back was right." if right else "Noted: that should have alerted."
+                lead = "🔍 Spot-check: right to hold back." if right else "🔍 Spot-check: this should have alerted."
+                outcome.footer = f"{lead} {outcome.footer}"
+            return outcome
         if action == "undo":
-            return self._undo(row, arg)
+            outcome = self._undo(row, arg)
+            if spot_check and outcome.keyboard is not None:
+                outcome.keyboard = SPOT_CHECK_KEYBOARD
+            return outcome
         if action == "look":
             return self._look(row)
         if action == "snooze":
@@ -112,12 +124,11 @@ class ActionHandler:
         results = []
         others = others or []
         for alert in [row, *others]:
-            latest = self.memory_sink.latest(alert["review_id"])
             results.append(self.feedback.submit(
                 alert["review_id"],
                 verdict,
                 reviewer=reviewer,
-                influenced_pattern_ids=list(latest.matched_memory_ids) if latest else [],
+                influenced_pattern_ids=self.influenced(alert["review_id"]),
             ))
         result, ids = results[0], [r.correction_id for r in results]
         toast = "Thanks, noted as expected." if verdict == "benign" else "Noted: you want alerts like this."
@@ -130,6 +141,16 @@ class ActionHandler:
             keyboard=f"after_feedback:{','.join(map(str, ids))}",
             ask_note=ids if verdict == "suspicious" else None,
         )
+
+    def influenced(self, review_id: str) -> list[str]:
+        """The learned patterns behind the event's latest decision, which a
+        correction scores. Stored with the decision, so a tap made after a
+        restart (a spot-check the next morning) still scores them (B-036)."""
+        stored = self.store.memory_ids(review_id)
+        if stored:
+            return stored
+        latest = self.memory_sink.latest(review_id)  # decided before the column existed
+        return list(latest.matched_memory_ids) if latest else []
 
     def remember_note_request(self, chat_id: int | str, message_id: int, correction_ids: list[int]) -> None:
         self.store.add_note_request(chat_id, message_id, correction_ids)
@@ -150,21 +171,31 @@ class ActionHandler:
         return f"✍️ Thanks. Next time I'll look for: “{html.escape(note, quote=False)}”."
 
     def _learned(self, row: Any, verdict: str, pattern_id: str | None) -> str:
-        labels = ", ".join(json.loads(row["labels"] or "[]")) or "activity"
+        """What a tap teaches, as it really works with this configuration
+        (B-037): a learned pattern holds events back by itself only in the
+        free memory mode, and never a person while armed away or at night."""
+        names = json.loads(row["labels"] or "[]")
+        labels = ", ".join(names) or "activity"
         what = f"{labels} on {row['camera']}"
         if verdict != "benign":
             return f"🚨 You asked for alerts like this. Watchwise will keep alerting on {what} like this."
         pattern = self.patterns.get(pattern_id) if pattern_id else None
         count = int(pattern["corrections"]) if pattern else 1
         needed = self.gate.memory_min_corrections
+        armed = " (a person still alerts while armed away or at night)" if "person" in names else ""
+        if self.gate.memory_mode != "free":
+            return (
+                f"✅ Marked expected ({count} so far). The vision model is now shown your judgements of "
+                f"{what} as examples; events it finds match them are held back{armed}, and still recorded."
+            )
         if count >= needed:
             return (
                 f"✅ Learned from {count} of your corrections: {what} like this is expected. "
-                "Watchwise can now hold these back by itself; they are still recorded."
+                f"Watchwise can now hold these back by itself{armed}; they are still recorded."
             )
         return (
             f"✅ Marked expected ({count} of {needed}). After {needed}, Watchwise can hold "
-            f"back {what} like this by itself."
+            f"back {what} like this by itself{armed}."
         )
 
     def _undo(self, row: Any, arg: str | None) -> ActionOutcome:
@@ -232,8 +263,7 @@ class ActionHandler:
                 f"{esc(STAGE_LABELS.get(decision.stage, decision.stage.value))}"
             )
             lines.append(f"Reason: {esc(plain_reason(decision))}")
-        latest = self.memory_sink.latest(row["review_id"])
-        for pattern_id in latest.matched_memory_ids if latest else []:
+        for pattern_id in self.influenced(row["review_id"]):
             pattern = self.patterns.get(pattern_id)
             if pattern:
                 lines.append(

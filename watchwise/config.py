@@ -195,6 +195,9 @@ class MemorySettings(BaseModel):
     short_term_max_chars: int = 12000
     # Long-term: decay so a pattern that stops recurring loses influence.
     pattern_half_life_days: float = 30.0
+    # How long the step-by-step record behind `watchwise export` is kept:
+    # every decision, card, button and arming change (0 keeps it for good).
+    trace_days: float = Field(default=14.0, ge=0.0)
 
 
 class DecisionSettings(BaseModel):
@@ -256,11 +259,27 @@ class MQTTPublishSettings(BaseModel):
     topic_prefix: str = "watchwise"
 
 
+class DigestSettings(BaseModel):
+    """A daily message: how many events Watchwise held back and why, with a
+    few of them sent back as cards to spot-check (M2-7). It goes to the
+    Telegram chats, so it passes through Telegram's servers like the cards;
+    ``/digest`` sends one on demand even when the schedule is off."""
+
+    enabled: bool = True
+    # Local time of day, HH:MM.
+    at: str = Field(default="08:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    # Held-back events sent back to check, at most one per reason held back.
+    spot_checks: int = Field(default=2, ge=0, le=5)
+    # Telegram's silent flag: the digest arrives with no sound or vibration.
+    silent: bool = True
+
+
 class NotifySettings(BaseModel):
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
     mqtt: MQTTPublishSettings = Field(default_factory=MQTTPublishSettings)
     # POST every verdict as JSON to this URL.
     webhook_url: str | None = None
+    digest: DigestSettings = Field(default_factory=DigestSettings)
 
 
 class FaceSettings(BaseModel):

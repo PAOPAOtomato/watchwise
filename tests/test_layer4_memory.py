@@ -409,6 +409,34 @@ def test_an_existing_database_gains_the_summary_column(tmp_path):
     assert store.get_alert("r")["summary"] == "A person walks past."
     store.record_decision({**decision, "summary": None, "stage": "investigated"})
     assert store.get_alert("r")["summary"] == "A person walks past.", "a later decision keeps it"
+    # B-036: the learned patterns behind a decision are kept with it.
+    assert store.memory_ids("r") == []
+    store.record_decision({**decision, "matched_memory_ids": ["fp-1"]})
+    assert store.memory_ids("r") == ["fp-1"]
+    store.close()
+
+
+def test_an_existing_database_gains_card_kinds_and_the_digest_table(tmp_path):
+    """M2-7: cards sent before spot-checks existed are alert cards."""
+    import sqlite3
+
+    from watchwise.memory.store import Store
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute(
+        "CREATE TABLE notifications (review_id TEXT NOT NULL, channel TEXT NOT NULL, chat_id TEXT NOT NULL, "
+        "message_id TEXT NOT NULL, has_image INTEGER NOT NULL DEFAULT 0, footer TEXT NOT NULL DEFAULT '', "
+        "keyboard TEXT NOT NULL DEFAULT 'full', created_at REAL NOT NULL, PRIMARY KEY (review_id, channel, chat_id))"
+    )
+    old.execute("INSERT INTO notifications VALUES ('r', 'telegram', '1', '5', 1, '', 'full', 1)")
+    old.commit()
+    old.close()
+
+    store = Store(path)
+    assert store.notifications_for("r", "telegram")[0]["kind"] == "alert"
+    store.add_digest("asked", 1.0, 2.0, {"1": "6"}, ["r"])
+    assert store.last_digest()["spot_checks"] == '["r"]'
     store.close()
 
 

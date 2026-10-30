@@ -121,6 +121,14 @@ notify:
     topic_prefix: watchwise
   # POST every verdict as JSON to this URL.
   webhook_url: null
+  # Every day, a Telegram message saying how many events were held back and
+  # why, with a few of them sent back as cards to spot-check (✅ / 🚨 like any
+  # card). It goes through Telegram like the cards; /digest sends one now.
+  digest:
+    enabled: true
+    at: "08:00" # local time
+    spot_checks: 2 # 0 turns them off
+    silent: true # no sound or vibration
 
 memory:
   db_path: ./data/watchwise.db

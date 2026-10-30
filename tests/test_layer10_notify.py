@@ -10,6 +10,7 @@ verdict publishing (B-001), and the `watchwise telegram` commands.
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -1129,3 +1130,296 @@ async def test_only_a_face_nobody_matched_offers_the_resident_buttons(system, nv
     state.push_button(CHAT, "fc:who:alex:gone-1", message_id=1)
     await sys_.bot.poll_once()
     assert "Frigate kept no face crop from this event" in state.sent[-1]["text"]
+
+
+# ---------------------------------------------------------------- the daily digest (M2-7)
+
+
+def _decided(store, review_id: str, start: float, *, stage: str, rationale: str, disposition: str = "downgraded",
+             labels: tuple[str, ...] = ("person",), camera: str = "cam_yard", memory_ids: tuple[str, ...] = ()) -> None:
+    store.upsert_alert({"review_id": review_id, "camera": camera, "start_time": start, "end_time": start + 5,
+                        "signature": f"{camera}|{','.join(labels)}|nozone", "labels": list(labels), "zones": []}, stage)
+    store.record_decision({"review_id": review_id, "disposition": disposition, "severity": "detection",
+                           "confidence": 0.9, "rationale": rationale, "stage": stage, "screen": None,
+                           "matched_memory_ids": list(memory_ids)})
+
+
+def _a_day_held_back(store, patterns) -> str:
+    """Eleven events of one night: one card, one muted alert, nine held back
+    for five reasons. Returns the learned pattern's id."""
+    for _ in range(3):
+        pid = patterns.upsert(kind="false_alarm", signature="cam_drive|car|nozone",
+                              description="headlights sweeping the gate", camera="cam_drive")
+    learned = ("gate/memory_pattern: matches known false-alarm pattern 'headlights sweeping the gate' "
+               "(similarity 0.97, 3 corrections, trust 0.75)")
+    for i in range(3):
+        _decided(store, f"face-{i}", NIGHT_TS + i * 60, stage="face",
+                 rationale="recognized as Ray by Frigate's face recognition")
+    for i in range(2):
+        _decided(store, f"car-{i}", NIGHT_TS + 600 + i * 60, stage="gated", rationale=learned,
+                 labels=("car",), camera="cam_drive", memory_ids=(pid,))
+    _decided(store, "screen-0", NIGHT_TS + 900, stage="screened", rationale="tier-2 screening: a person sitting")
+    _decided(store, "inv-0", NIGHT_TS + 960, stage="investigated", rationale="auto-downgraded: the resident's routine")
+    _decided(store, "cat-0", NIGHT_TS + 1000, stage="gated", disposition="suppressed", labels=("cat",),
+             rationale="gate/never_screen_label: label(s) ['cat'] are configured as never-screen")
+    _decided(store, "dup-0", NIGHT_TS + 1100, stage="gated", rationale="gate/dedupe_window: duplicate of …")
+    _decided(store, "alert-0", NIGHT_TS + 1200, stage="screened", disposition="alerted", rationale="a stranger")
+    store.add_notification("alert-0", "telegram", "111", "9", has_image=True)
+    _decided(store, "muted-0", NIGHT_TS + 1300, stage="screened", disposition="alerted", rationale="while muted")
+    return pid
+
+
+def test_the_digest_counts_what_was_held_back_and_why(store, patterns):
+    from watchwise.notify.digest import build_digest, render_digest
+
+    _a_day_held_back(store, patterns)
+    window = (NIGHT_TS - 3600, NIGHT_TS + 7200)
+    digest = build_digest(store, *window, spot_checks=2)
+
+    assert (digest.events, digest.sent, digest.muted, digest.held_count) == (11, 1, 1, 9)
+    groups = {g.label: len(g.review_ids) for g in digest.held}
+    assert groups == {
+        "recognized Ray": 3,
+        "learned from your 3 corrections for “headlights sweeping the gate”": 2,
+        "the vision model's first look found it ordinary": 1,
+        "an investigation found it ordinary": 1,
+        "never screened (cat)": 1,
+        "a repeat of the same kind of event just before": 1,
+    }
+    # At most one per reason; what the owner taught first, then the largest group.
+    assert digest.spot_checks[0] in ("car-0", "car-1") and digest.spot_checks[1].startswith("face-")
+    assert build_digest(store, *window, spot_checks=2).spot_checks == digest.spot_checks, "the same window, the same picks"
+
+    text = render_digest(digest)
+    assert "11 events: 1 sent to you, 9 held back, 1 alerted while muted" in text
+    assert "👤 recognized Ray · 3" in text
+    assert "🧠 learned from your 3 corrections for “headlights sweeping the gate” · 2" in text
+    assert "Spot-check 2 of the 9" in text
+    assert len(text) < 4096
+
+
+def test_spot_checks_skip_what_was_answered_or_checked_and_can_be_switched_off(store, patterns):
+    from watchwise.notify.digest import build_digest, render_digest
+
+    _a_day_held_back(store, patterns)
+    window = (NIGHT_TS - 3600, NIGHT_TS + 7200)
+    for review_id in ("car-0", "car-1", "face-0", "face-1"):
+        store.execute("INSERT INTO corrections(review_id, signature, human_verdict, created_at) VALUES (?,?,?,?)",
+                      (review_id, "s", "benign", NIGHT_TS + 5000))
+    store.add_notification("face-2", "telegram", "111", "10", has_image=False, kind="spot_check")
+
+    digest = build_digest(store, *window, spot_checks=5)
+    assert digest.held_count == 9, "a spot-checked event is still one that was held back"
+    assert "car-0" not in digest.spot_checks and not any(r.startswith("face-") for r in digest.spot_checks)
+    assert len(digest.spot_checks) == len(set(digest.spot_checks)) == 4  # one per remaining reason
+    assert digest.answers == {"benign": 4}
+    assert build_digest(store, *window, spot_checks=0).spot_checks == []
+
+    record = {"answered": 8, "right_to_hold_back": 7, "accuracy": 0.875}
+    text = render_digest(build_digest(store, *window, spot_checks=2, record=record))
+    assert "Your answers: 4 ✅ Expected, 0 🚨 Alert me." in text
+    assert "Spot-checks so far: 7 of 8 were right to hold back." in text
+
+
+class _Notifier:
+    def __init__(self) -> None:
+        self.sent: list = []
+
+    async def send_digest(self, digest, chat_ids=None, *, silent=True):
+        self.sent.append((digest, silent))
+        return {"111": str(len(self.sent))}
+
+
+async def test_the_daily_digest_goes_out_once_a_day_and_catches_up_after_a_restart(store, tmp_path):
+    from watchwise.config import DigestSettings
+    from watchwise.memory.store import Store
+    from watchwise.notify.digest import SCHEDULED, DigestScheduler
+
+    def at(day: int, hour: int, minute: int = 0) -> float:
+        return time.mktime((2026, 3, day, hour, minute, 0, 0, 0, -1))
+
+    now = {"t": at(10, 7)}
+    notifier, settings = _Notifier(), DigestSettings(at="08:00")
+    scheduler = DigestScheduler(store, None, notifier, settings, clock=lambda: now["t"])
+    _decided(store, "e-1", at(10, 3), stage="screened", rationale="a cat")
+    assert not scheduler.due()
+    now["t"] = at(10, 8, 1)
+    assert scheduler.due()
+    digest = await scheduler.send(SCHEDULED)
+    assert digest.events == 1 and len(notifier.sent) == 1 and notifier.sent[0][1] is True, "silent by default"
+    assert not scheduler.due(), "once a day"
+    assert 1.0 <= scheduler.pause() <= 300.0
+
+    now["t"] = at(11, 8, 1)
+    assert scheduler.due()
+    quiet = await scheduler.send(SCHEDULED)
+    assert quiet.empty and len(notifier.sent) == 1, "a day with nothing to say sends nothing"
+    assert store.last_digest()["since"] == at(10, 8, 1), "each digest starts where the last one ended"
+    assert not scheduler.due(), "but the window moved on"
+
+    now["t"] = at(12, 10)  # stopped over the 08:00 of the 12th
+    restarted = DigestScheduler(store, None, notifier, settings, clock=lambda: now["t"])
+    assert restarted.due(), "two hours late: sent at start"
+    now["t"] = at(12, 21)
+    assert not restarted.due(), "thirteen hours late: wait for the next one"
+    asked = await restarted.send()
+    assert asked.empty and notifier.sent[-1][0] is asked, "/digest always answers, even with nothing new"
+
+    fresh = Store(tmp_path / "fresh.db")
+    now["t"] = at(10, 15)
+    first = DigestScheduler(fresh, None, notifier, settings, clock=lambda: now["t"])
+    assert not first.due(), "the very first one waits for the next 08:00"
+    now["t"] = at(11, 8)
+    assert first.due()
+    first.settings = DigestSettings(enabled=False)
+    assert not first.due(), "the schedule can be switched off"
+    fresh.close()
+
+
+async def test_spot_checks_are_cards_whose_answers_feed_the_accuracy_report(system):
+    """M2-7 end to end: what the owner taught holds a cat back; /digest sends
+    it back with another held-back event as cards; their answers are
+    corrections, also after a restart (B-036), and count as spot-checks."""
+    from watchwise.notify.digest import build_digest
+
+    sys_, state = system
+    for i in range(3):  # three cats on the lawn, each answered "expected"
+        await sys_.pipeline.handle(make_alert(review_id=f"cat-{i}", camera="cam_yard", labels=["cat"],
+                                              zones=["lawn"], start_time=DAY_TS + i * 3600))
+        sys_.feedback.submit(f"cat-{i}", "benign", note="the neighbour's cat on the lawn",
+                             influenced_pattern_ids=sys_.bot.handler.influenced(f"cat-{i}"))
+    held = await sys_.pipeline.handle(make_alert(review_id="cat-3", camera="cam_yard", labels=["cat"],
+                                                 zones=["lawn"], start_time=DAY_TS + 3 * 3600))
+    assert held.stage is Stage.GATED and sys_.store.memory_ids("cat-3") == held.matched_memory_ids
+    await sys_.pipeline.handle(make_alert(review_id="dog-0", camera="cam_drive", labels=["dog"],
+                                          start_time=NIGHT_TS + 3600))
+    await sys_.pipeline.handle(night_person("rev-p"))
+    await settle(sys_)
+    cards_before = len(state.sent)
+
+    sys_.bot.digests.clock = lambda: DAY_TS + 6 * 3600
+    state.push_message(CHAT, "/digest")
+    await sys_.bot.poll_once()
+    digest_msg, *checks = state.sent[cards_before:]
+    assert digest_msg["silent"] and "6 events: 1 sent to you, 5 held back" in digest_msg["text"]
+    assert "🧠 learned from your 3 corrections for “the neighbour's cat on the lawn” · 1" in digest_msg["text"]
+    assert [c["reply_to"] for c in checks] == [digest_msg["message_id"]] * 2
+    assert all(c["silent"] and c["method"] == "sendPhoto" for c in checks)
+    first, second = checks
+    assert first["text"].startswith("<b>🔍 Spot-check · Cat · cam_yard · lawn · Tue 17:00</b>")
+    assert state.buttons(first) == ["fb:ok:cat-3", "fb:real:cat-3", "fb:why:cat-3"]
+    assert "fb:ok:dog-0" in state.buttons(second)
+
+    sys_.memory_sink.decisions.clear()  # as after a restart: only the store remembers (B-036)
+    (pattern_id,) = held.matched_memory_ids
+    state.push_button(CHAT, "fb:real:cat-3", message_id=first["message_id"])
+    await sys_.bot.poll_once()
+    assert sys_.patterns.get(pattern_id)["disagreements"] == 1, "the pattern that held it back lost trust"
+    assert state.answers[-1]["text"] == "Noted: that should have alerted."
+    assert "🔍 Spot-check: this should have alerted." in state.edits[-1]["text"]
+    assert "What was wrong?" in state.sent[-1]["text"]
+
+    state.push_button(CHAT, "fb:ok:dog-0", message_id=second["message_id"])
+    await sys_.bot.poll_once()
+    assert "🔍 Spot-check: right to hold back." in state.edits[-1]["text"]
+    assert sys_.feedback.accuracy_report()["spot_checks"] == {"answered": 2, "right_to_hold_back": 1, "accuracy": 0.5}
+
+    undo = state.buttons(state.edits[-1])[0]
+    state.push_button(CHAT, undo, message_id=second["message_id"])
+    await sys_.bot.poll_once()
+    assert state.buttons(state.edits[-1]) == ["fb:ok:dog-0", "fb:real:dog-0", "fb:why:dog-0"], "a spot-check again"
+    assert sys_.feedback.spot_checks()["answered"] == 1
+
+    again = build_digest(sys_.store, DAY_TS - 18 * 3600, DAY_TS + 6 * 3600, spot_checks=2)
+    assert again.spot_checks == [], "an event is never spot-checked twice"
+
+
+# ---------------------------------------------------------------- the trace record (M2-10)
+
+
+async def test_every_decision_card_and_owner_action_is_kept_in_order(system):
+    """What `watchwise export` replays: each decision (the alerts table keeps
+    only the last), each card as the phone showed it, each tap and note."""
+    sys_, state = system
+    await sys_.pipeline.handle(night_person())
+    await settle(sys_)
+    decisions = [json.loads(r["decision"]) for r in sys_.store.query(
+        "SELECT decision FROM decision_log WHERE review_id='rev-a' ORDER BY id")]
+    assert [d["stage"] for d in decisions] == ["screened", "investigated"]
+
+    await press(sys_, state, "fb:real:rev-a")
+    question = state.sent[-1]
+    state.push_message(CHAT, "climbing the fence", reply_to=question["message_id"])
+    await sys_.bot.poll_once()
+    state.push_message(CHAT, "/arm night")
+    await sys_.bot.poll_once()
+
+    cards = sys_.store.query("SELECT * FROM card_log ORDER BY id")
+    assert [(c["kind"], c["action"]) for c in cards][:4] == [
+        ("alert", "sent"), ("alert", "edited"), ("alert", "edited"), ("note_request", "sent")]
+    assert cards[0]["text"] == state.sent[0]["text"] and cards[0]["has_image"] == 1
+    assert cards[1]["text"] == state.edits[0]["text"] and "after an investigation" in cards[1]["text"]
+    assert json.loads(cards[2]["buttons"])["inline_keyboard"][0][0]["text"] == "↩️ Undo"
+
+    owner = sys_.store.query("SELECT * FROM owner_log ORDER BY id")
+    assert [(o["kind"], o["data"]) for o in owner] == [
+        ("button", "fb:real:rev-a"), ("note", "climbing the fence"), ("command", "/arm night")]
+    tapped = json.loads(owner[0]["outcome"])
+    assert owner[0]["review_id"] == "rev-a" and tapped["toast"] == "Noted: you want alerts like this."
+    assert tapped["corrections"] and tapped["spot_check"] is False
+    assert json.loads(owner[1]["outcome"])["replied_to"] == question["message_id"]
+    (armed,) = sys_.store.query("SELECT state, source FROM arming_log")
+    assert armed["state"] == "armed_night" and armed["source"].startswith("telegram:")
+
+
+def test_the_trace_record_is_kept_for_trace_days_only(tmp_path):
+    from watchwise.memory.store import Store
+
+    path = tmp_path / "w.db"
+    store = Store(path)
+    store.log_arming("armed_away", "api", at=time.time() - 20 * 86400)
+    store.log_arming("armed_home", "api")
+    store.close()
+    kept = Store(path, log_days=14)
+    assert [r["state"] for r in kept.query("SELECT state FROM arming_log")] == ["armed_home"]
+    kept.close()
+
+
+def test_a_digest_with_nothing_new_still_shows_the_spot_check_record(store):
+    from watchwise.notify.digest import build_digest, render_digest
+
+    record = {"answered": 2, "right_to_hold_back": 1, "accuracy": 0.5}
+    text = render_digest(build_digest(store, NIGHT_TS, NIGHT_TS + 60, record=record))
+    assert "Nothing happened on your cameras" in text and "Spot-checks so far: 1 of 2" in text
+    assert "Spot-checks so far" not in render_digest(build_digest(store, NIGHT_TS, NIGHT_TS + 60))
+
+
+async def test_the_learned_footer_says_what_memory_really_does_here(system):
+    """B-037: live, with gate.memory_mode model_checked, 36 cards said
+    "Watchwise can now hold these back by itself", which only the free mode
+    does, and never for a person while armed away or at night."""
+    sys_, state = system
+    await sys_.pipeline.handle(night_person())
+    await settle(sys_)
+    await press(sys_, state, "fb:ok:rev-a")
+    footer = state.edits[-1]["text"]
+    assert "Marked expected (1 of 3)" in footer and "(a person still alerts while armed away or at night)" in footer
+
+    sys_.config.gate.memory_mode = "model_checked"
+    await press(sys_, state, [b for b in state.buttons(state.edits[-1]) if b.startswith("fb:undo")][0])
+    await press(sys_, state, "fb:ok:rev-a")
+    footer = state.edits[-1]["text"]
+    assert "by itself" not in footer
+    assert "The vision model is now shown your judgements of person on cam_yard as examples" in footer
+
+
+def test_a_pattern_watchwise_named_itself_reads_as_what_and_where(store, patterns):
+    """Live 2026-10-30: the digest quoted 'recurring false alarm on webcam for ["person"]'."""
+    from watchwise.notify.digest import build_digest
+
+    pid = patterns.upsert(kind="false_alarm", signature="webcam|person|nozone", camera="webcam",
+                          description='recurring false alarm on webcam for ["person"]')
+    _decided(store, "s-1", NIGHT_TS, stage="screened", rationale="tier-2 screening: a person at the desk",
+             camera="webcam", memory_ids=(pid,))
+    (group,) = build_digest(store, NIGHT_TS - 60, NIGHT_TS + 60).held
+    assert group.label == "the vision model, shown your 1 correction for person on webcam, found it ordinary"

@@ -753,6 +753,25 @@ async def test_the_last_turn_allows_no_more_tool_calls(tool_ctx, store):
     assert [tools is None for _, tools in chat.calls] == [False, False, True]
 
 
+async def test_a_last_turn_in_prose_is_kept_and_asked_once_more(tool_ctx, store):
+    """B-039: live 2026-10-30 12:35, the final turn's reply had no JSON
+    object; it wasn't kept, and the whole investigation was thrown away."""
+    replies = iter([call(camera="cam_drive"), call(camera="cam_drive"),
+                    ChatResult(content="The person is the resident at the desk; nothing unusual."),
+                    conclusion("benign", 0.8, "the resident at the desk")])
+    chat = StubChat(script=[lambda msgs, tools: next(replies)] * 4)
+    inv = await investigator_for(chat, tool_ctx, store, max_iterations=2).investigate(make_alert(), UNCERTAIN)
+    assert (inv.verdict, inv.confidence) == (Verdict.BENIGN, 0.8) and len(chat.calls) == 4
+    assert any("the resident at the desk; nothing unusual" in t for t in inv.thoughts)
+
+    prose = iter([call(camera="cam_drive"), call(camera="cam_drive"), ChatResult(content="Looks fine."),
+                  ChatResult(content="")])
+    chat = StubChat(script=[lambda msgs, tools: next(prose)] * 4)
+    inv = await investigator_for(chat, tool_ctx, store, max_iterations=2).investigate(make_alert(), UNCERTAIN)
+    assert inv.verdict is Verdict.UNCERTAIN and "reached its budget" in inv.conclusion, "still fails open"
+    assert "Looks fine." in inv.thoughts and "(empty reply)" in inv.thoughts
+
+
 async def test_a_transport_failure_marks_the_investigation_failed(tool_ctx, store):
     class Down(StubChat):
         async def complete(self, messages, **kwargs):

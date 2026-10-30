@@ -238,7 +238,8 @@ def create_app(
     async def submit_feedback(fb: FeedbackIn) -> dict[str, Any]:
         system = sys_()
         decision = system.memory_sink.latest(fb.review_id)
-        influenced = decision.matched_memory_ids if decision else []
+        # Stored with the decision, so this works after a restart too (B-036).
+        influenced = system.store.memory_ids(fb.review_id) or (decision.matched_memory_ids if decision else [])
         try:
             result = system.feedback.submit(
                 fb.review_id,

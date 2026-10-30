@@ -30,8 +30,9 @@ from typing import Any
 import httpx
 
 from watchwise.config import CameraSettings, FaceSettings, RoomSettings, TelegramSettings, room_key, same_room
-from watchwise.memory.store import Store
+from watchwise.memory.store import ALERT_CARD, SPOT_CHECK, Store
 from watchwise.notify.actions import ASK_WHY, ActionHandler
+from watchwise.notify.digest import Digest, render_digest
 from watchwise.notify.faces import FaceEnroller
 from watchwise.notify.presenter import (
     CAPTION_LIMIT,
@@ -40,6 +41,7 @@ from watchwise.notify.presenter import (
     build_card,
     SERIOUSNESS,
     build_room_card,
+    build_spot_check,
     clip_url,
     context_from_row,
     decision_from_row,
@@ -64,6 +66,7 @@ for _name in ("httpx", "httpcore"):
 CHANNEL = "telegram"
 # How far back a room card can still be joined, or an event pulled onto one.
 RECENT_CARDS_S = 3600.0
+DIGEST = "digest"  # card_log kind of the digest message itself
 
 
 class TelegramError(RuntimeError):
@@ -96,7 +99,7 @@ class TelegramAPI:
             try:
                 if files:
                     data = {
-                        k: json.dumps(v) if isinstance(v, (dict, list)) else str(v)
+                        k: json.dumps(v) if isinstance(v, (dict, list, bool)) else str(v)
                         for k, v in params.items()
                     }
                     r = await self._client.post(url, data=data, files=files)
@@ -127,7 +130,9 @@ class TelegramAPI:
         *,
         reply_markup: dict[str, Any] | None = None,
         reply_to: int | None = None,
+        silent: bool = False,
     ) -> dict[str, Any]:
+        """``silent``: shown with no sound or vibration (the digest)."""
         return await self.call(
             "sendMessage",
             chat_id=chat_id,
@@ -136,6 +141,7 @@ class TelegramAPI:
             reply_markup=reply_markup,
             reply_to_message_id=reply_to,
             disable_web_page_preview=True,
+            disable_notification=True if silent else None,
         )
 
     async def send_photo(
@@ -145,6 +151,8 @@ class TelegramAPI:
         caption: str,
         *,
         reply_markup: dict[str, Any] | None = None,
+        reply_to: int | None = None,
+        silent: bool = False,
     ) -> dict[str, Any]:
         return await self.call(
             "sendPhoto",
@@ -153,6 +161,8 @@ class TelegramAPI:
             caption=caption,
             parse_mode="HTML",
             reply_markup=reply_markup,
+            reply_to_message_id=reply_to,
+            disable_notification=True if silent else None,
         )
 
     async def edit(
@@ -384,6 +394,8 @@ class TelegramNotifier:
             if alert is None or decision is None:
                 return None
             ctx = context_from_row(alert)
+        if self.card_kind(lead) == SPOT_CHECK:
+            return build_spot_check(ctx, decision)
         others: list[tuple[AlertContext, Decision]] = []
         for review_id in self.store.card_members(lead, CHANNEL) if members is None else members:
             row = self.store.get_alert(review_id)
@@ -408,13 +420,16 @@ class TelegramNotifier:
                                  who=self._who(card))
         for chat_id in self.settings.chat_ids:
             await self._pace(str(chat_id))
+            text = card.html(CAPTION_LIMIT if image else TEXT_LIMIT)
             if image:
-                msg = await self.api.send_photo(chat_id, image, card.html(CAPTION_LIMIT), reply_markup=markup)
+                msg = await self.api.send_photo(chat_id, image, text, reply_markup=markup)
             else:
-                msg = await self.api.send_message(chat_id, card.html(TEXT_LIMIT), reply_markup=markup)
+                msg = await self.api.send_message(chat_id, text, reply_markup=markup)
             self.store.add_notification(
                 ctx.review_id, CHANNEL, str(chat_id), str(msg["message_id"]), has_image=bool(image)
             )
+            self.store.log_card(CHANNEL, chat_id, msg["message_id"], ctx.review_id, kind=ALERT_CARD, action="sent",
+                                text=text, buttons=markup, has_image=bool(image), members=companions)
         self.store.set_notification_state(ctx.review_id, CHANNEL, footer="", keyboard=card.keyboard)
         for review_id in companions:
             self.store.add_card_member(ctx.review_id, review_id, CHANNEL)
@@ -446,6 +461,7 @@ class TelegramNotifier:
         card.footer = footer
         markup = keyboard_markup(card.review_id, keyboard, clip=clip_url(self.web_url, card.review_id),
                                  who=self._who(card))
+        members = self.store.card_members(card.review_id, CHANNEL)
         for row in rows:
             limit = CAPTION_LIMIT if row["has_image"] else TEXT_LIMIT
             try:
@@ -458,10 +474,61 @@ class TelegramNotifier:
                 )
             except TelegramError as exc:
                 logger.warning("could not update the card for %s: %s", card.review_id, exc)
+                continue
+            self.store.log_card(CHANNEL, row["chat_id"], row["message_id"], card.review_id, kind=str(row["kind"]),
+                                action="edited", text=card.html(limit), buttons=markup,
+                                has_image=bool(row["has_image"]), members=members)
 
     def _who(self, card: AlertCard) -> list[str]:
         """Residents to offer on a card for a face nobody matched (D-071)."""
         return list(self.faces.household) if card.unknown_face else []
+
+    def card_kind(self, review_id: str) -> str:
+        """An alert card, or a spot-check the digest sent (M2-7)."""
+        rows = self.store.notifications_for(review_id, CHANNEL)
+        return str(rows[0]["kind"]) if rows else ALERT_CARD
+
+    # ---------------- the daily digest (M2-7) ----------------
+
+    async def send_digest(
+        self, digest: Digest, chat_ids: list[Any] | None = None, *, silent: bool = True
+    ) -> dict[str, str]:
+        """The digest, then each spot-check as a card in reply to it.
+        Returns the digest's message id per chat."""
+        text = render_digest(digest)
+        messages: dict[str, str] = {}
+        for chat_id in chat_ids or self.settings.chat_ids:
+            await self._pace(str(chat_id))
+            sent = await self.api.send_message(chat_id, text, silent=silent)
+            messages[str(chat_id)] = str(sent["message_id"])
+            self.store.log_card(CHANNEL, chat_id, sent["message_id"], "", kind=DIGEST, action="sent", text=text)
+            for review_id in digest.spot_checks:
+                try:
+                    await self._spot_check(chat_id, review_id, reply_to=int(sent["message_id"]), silent=silent)
+                except TelegramError as exc:
+                    logger.warning("could not send the spot-check of %s: %s", review_id, exc)
+        return messages
+
+    async def _spot_check(self, chat_id: Any, review_id: str, *, reply_to: int, silent: bool) -> None:
+        row = self.store.get_alert(review_id)
+        decision = decision_from_row(row) if row is not None else None
+        if row is None or decision is None:
+            return
+        ctx = context_from_row(row)
+        card = build_spot_check(ctx, decision)
+        image = await self._snapshot(ctx) if self.settings.send_images else None
+        markup = keyboard_markup(review_id, card.keyboard, clip=clip_url(self.web_url, review_id))
+        await self._pace(str(chat_id))
+        text = card.html(CAPTION_LIMIT if image else TEXT_LIMIT)
+        if image:
+            msg = await self.api.send_photo(chat_id, image, text, reply_markup=markup, reply_to=reply_to, silent=silent)
+        else:
+            msg = await self.api.send_message(chat_id, text, reply_markup=markup, reply_to=reply_to, silent=silent)
+        self.store.add_notification(review_id, CHANNEL, str(chat_id), str(msg["message_id"]),
+                                    has_image=bool(image), kind=SPOT_CHECK)
+        self.store.log_card(CHANNEL, chat_id, msg["message_id"], review_id, kind=SPOT_CHECK, action="sent",
+                            text=text, buttons=markup, has_image=bool(image))
+        self.store.set_notification_state(review_id, CHANNEL, footer="", keyboard=card.keyboard)
 
     async def _snapshot(self, ctx: AlertContext) -> bytes | None:
         try:
@@ -493,6 +560,8 @@ HELP = (
     "Ask in your own words, e.g. “anything in the kitchen today?”, or reply to a card to ask "
     "about it. Changes (roster, arming, muting, “tell me when…”) only happen when you tap ✅ Confirm. "
     "/new starts a new conversation\n"
+    "/digest: what was held back since the last digest, with a few to spot-check (a daily "
+    "one arrives silently; answer a spot-check with ✅ or 🚨 like any card)\n"
     "/setup: tell Watchwise about your home (cameras, residents, what always alerts)\n"
     "/arm: see or switch arming (Home, Away, Night, Off)\n"
     "/face &lt;name&gt;: add your face to Frigate's Face Library from what the camera sees now "
@@ -535,6 +604,7 @@ class TelegramBot:
         arming: Any = None,
         chat: ChatService | None = None,
         proposals: ProposalBook | None = None,
+        digests: Any = None,
     ):
         self.api = api
         self.settings = settings
@@ -542,6 +612,8 @@ class TelegramBot:
         self.notifier = notifier
         self.enroller = enroller
         self.setup = setup
+        # The daily digest (M2-7): /digest sends one now.
+        self.digests = digests
         # Anything with get() and set(state, source); /arm reads and switches it.
         self.arming = arming
         # "Ask Watchwise" (D-065): questions, and the changes it proposes.
@@ -619,10 +691,14 @@ class TelegramBot:
             return
         if not self.allowed(chat_id):
             return  # strangers get no further answers
+        if text.startswith("/"):
+            self._log(chat_id, message.get("message_id"), "command", text)
         replied_to = (message.get("reply_to_message") or {}).get("message_id")
         if replied_to is not None and text and not text.startswith("/"):
             answer = self.handler.note_from_reply(chat_id, int(replied_to), text)
             if answer is not None:
+                self._log(chat_id, message.get("message_id"), "note", text,
+                          outcome={"replied_to": replied_to, "reply": answer})
                 await self.api.send_message(chat_id, answer, reply_to=message.get("message_id"))
                 return
         if text.startswith("/setup"):
@@ -635,6 +711,11 @@ class TelegramBot:
             await self._send(chat_id, await self.setup.answer(int(chat_id), text))
         elif text.startswith("/face"):
             await self._face(chat_id, text)
+        elif text.startswith("/digest"):
+            if self.digests is None:
+                await self.api.send_message(chat_id, "The digest isn't available here.")
+            else:
+                await self.digests.send(chat_ids=[chat_id])
         elif text.startswith("/help"):
             await self.api.send_message(chat_id, HELP)
         elif text.startswith("/new") and self.chat is not None:
@@ -662,15 +743,18 @@ class TelegramBot:
                 with contextlib.suppress(TelegramError):
                     await self.api.send_chat_action(chat_id, "typing")
                 answer = await self.chat.ask(str(chat_id), text, about=about)
-                await self.api.send_message(chat_id, html.escape(answer.text, quote=False)[:4000], reply_to=message_id)
+                reply = html.escape(answer.text, quote=False)[:4000]
+                sent = await self.api.send_message(chat_id, reply, reply_to=message_id)
+                self.notifier.store.log_card(CHANNEL, chat_id, sent["message_id"], about or "", kind="chat",
+                                             action="sent", text=reply)
                 for review_id in answer.images:
                     await self._photo(chat_id, review_id)
                 for proposal in answer.proposals:
-                    await self.api.send_message(
-                        chat_id,
-                        f"📝 {html.escape(proposal.summary, quote=False)}\nNothing changes unless you confirm.",
-                        reply_markup=_markup([[("✅ Confirm", f"pr:ok:{proposal.id}"), ("✖️ Cancel", f"pr:no:{proposal.id}")]]),
-                    )
+                    offer = f"📝 {html.escape(proposal.summary, quote=False)}\nNothing changes unless you confirm."
+                    markup = _markup([[("✅ Confirm", f"pr:ok:{proposal.id}"), ("✖️ Cancel", f"pr:no:{proposal.id}")]])
+                    sent = await self.api.send_message(chat_id, offer, reply_markup=markup)
+                    self.notifier.store.log_card(CHANNEL, chat_id, sent["message_id"], "", kind="proposal",
+                                                 action="sent", text=offer, buttons=markup)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -684,7 +768,10 @@ class TelegramBot:
         image = await self.notifier._snapshot(ctx)
         if image:
             when = safe_strftime(ctx.start_time, "%a %H:%M")
-            await self.api.send_photo(chat_id, image, f"📷 {html.escape(ctx.camera, quote=False)} · {when}")
+            caption = f"📷 {html.escape(ctx.camera, quote=False)} · {when}"
+            sent = await self.api.send_photo(chat_id, image, caption)
+            self.notifier.store.log_card(CHANNEL, chat_id, sent["message_id"], review_id, kind="chat_photo",
+                                         action="sent", text=caption, has_image=True)
 
     async def _proposal_button(self, query: dict[str, Any], chat_id: Any, data: str) -> None:
         _, action, proposal_id = (data.split(":", 2) + ["", ""])[:3]
@@ -697,11 +784,15 @@ class TelegramBot:
             logger.info("proposal %s confirmed by telegram:%s", proposal_id, user.get("username") or user.get("id"))
         else:
             outcome = self.proposals.cancel(proposal_id)
-        await self._answer(query, outcome.text[:190])
         message = query.get("message") or {}
+        self._log(chat_id, message.get("message_id"), "button", data, outcome={"text": outcome.text, "done": outcome.done})
+        await self._answer(query, outcome.text[:190])
         if message.get("message_id") is not None:
             mark = "✅" if action == "ok" and outcome.done else "✖️"
-            await self.api.edit(chat_id, message["message_id"], f"{mark} {html.escape(outcome.text, quote=False)}", has_image=False)
+            shown = f"{mark} {html.escape(outcome.text, quote=False)}"
+            await self.api.edit(chat_id, message["message_id"], shown, has_image=False)
+            self.notifier.store.log_card(CHANNEL, chat_id, message["message_id"], "", kind="proposal",
+                                         action="edited", text=shown)
 
     async def _on_button(self, query: dict[str, Any]) -> None:
         message = query.get("message") or {}
@@ -711,6 +802,7 @@ class TelegramBot:
             return
         data = str(query.get("data") or "")
         if data.startswith("fc:"):
+            self._log(chat_id, message.get("message_id"), "button", data)
             await self._face_button(query, chat_id, data)
             return
         if data.startswith("su:") and self.setup is not None:
@@ -718,6 +810,7 @@ class TelegramBot:
             await self._send(chat_id, await self.setup.press(int(chat_id), data), pressed=message.get("message_id"))
             return
         if data.startswith("ar:"):
+            self._log(chat_id, message.get("message_id"), "button", data)
             await self._arm_button(query, chat_id, data[3:])
             return
         if data.startswith("pr:"):
@@ -729,13 +822,19 @@ class TelegramBot:
             return
         action, review_id, arg = parsed
         user = query.get("from") or {}
+        spot_check = self.notifier.card_kind(review_id) == SPOT_CHECK
         outcome = await self.handler.handle(
             action,
             review_id,
             arg=arg,
             reviewer=f"telegram:{user.get('username') or user.get('id')}",
             group=self.notifier.card_group(review_id),
+            spot_check=spot_check,
         )
+        self._log(chat_id, message.get("message_id"), "button", data, review_id, {
+            "toast": outcome.toast, "footer": outcome.footer, "keyboard": outcome.keyboard,
+            "reply": outcome.reply, "corrections": outcome.ask_note, "spot_check": spot_check,
+        })
         await self._answer(query, outcome.toast)
         if outcome.footer is not None or outcome.keyboard is not None:
             await self.notifier.apply(review_id, footer=outcome.footer, keyboard=outcome.keyboard)
@@ -749,6 +848,8 @@ class TelegramBot:
                 reply_markup={"force_reply": True, "input_field_placeholder": "What was wrong?"},
             )
             self.handler.remember_note_request(chat_id, int(sent["message_id"]), outcome.ask_note)
+            self.notifier.store.log_card(CHANNEL, chat_id, sent["message_id"], review_id, kind="note_request",
+                                         action="sent", text=ASK_WHY)
 
     # ---------------- /setup (D-060) ----------------
 
@@ -875,6 +976,15 @@ class TelegramBot:
             await self._answer(query, "Cancelled.")
             result = self.enroller.cancel(token)
         await self.api.send_message(chat_id, html.escape(result, quote=False), reply_to=message_id)
+
+    def _log(self, chat_id: Any, message_id: Any, kind: str, data: str, review_id: str | None = None,
+             outcome: dict[str, Any] | None = None) -> None:
+        """Keep what the owner did for the trace export (M2-10)."""
+        try:
+            self.notifier.store.log_owner(CHANNEL, chat_id, message_id, kind=kind, data=data, review_id=review_id,
+                                          outcome=outcome)
+        except Exception:
+            logger.exception("could not log the owner's %s", kind)
 
     async def _answer(self, query: dict[str, Any], text: str | None) -> None:
         """Answer a button press. Telegram refuses answers to presses that

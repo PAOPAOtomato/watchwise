@@ -50,7 +50,9 @@ SECTION_COMMENTS = {
     ),
     "notify": (
         "# Phone alerts (Telegram). Connect a chat with `watchwise telegram link`.\n"
-        "# Telegram relays card text, and the snapshot unless send_images is false."
+        "# Telegram relays card text, and the snapshot unless send_images is false.\n"
+        "# Once linked, a silent digest of what was held back, with 2 spot-checks,\n"
+        "# arrives daily at 08:00 (notify.digest: enabled, at, spot_checks, silent)."
     ),
     "memory": None,
     "duty_roster": None,

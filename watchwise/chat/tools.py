@@ -24,7 +24,7 @@ import yaml
 
 from watchwise.chat.proposals import Proposal, ProposalBook
 from watchwise.config import WatchwiseConfig, room_key
-from watchwise.memory.store import Store
+from watchwise.memory.store import ALERT_CARD, SPOT_CHECK, Store
 from watchwise.memory.watches import WatchBook
 from watchwise.notify.presenter import STAGE_LABELS, decision_from_row, plain_reason
 from watchwise.nvr.client import NVRClient
@@ -39,6 +39,10 @@ OUTCOMES = {
     Disposition.DOWNGRADED: "routine, no card",
     Disposition.SUPPRESSED: "held back",
 }
+# An alert card went out, then a later look (the investigation, a recognized
+# face) found it routine and edited the card (B-038).
+CLEARED = "card sent, then cleared as routine"
+CHANNEL = "telegram"
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
@@ -97,14 +101,32 @@ def _when(ts: float) -> str:
     return safe_strftime(ts, "%a %H:%M") or "?"
 
 
-def _event(ctx: ChatContext, row: Any) -> dict[str, Any]:
+def _card(ctx: ChatContext, review_id: str) -> str | None:
+    """'alert' if the event was on an alert card (its own, or another
+    camera's room card), 'spot_check' if only the digest sent it back."""
+    rows = ctx.store.notifications_for(review_id, CHANNEL)
+    if any(r["kind"] == ALERT_CARD for r in rows) or ctx.store.card_lead(review_id, CHANNEL):
+        return ALERT_CARD
+    return SPOT_CHECK if rows else None
+
+
+def _outcome(decision: Any, card: str | None) -> str:
+    if decision is None:
+        return "not decided yet"
+    if card == ALERT_CARD and decision.disposition in (Disposition.DOWNGRADED, Disposition.SUPPRESSED):
+        return CLEARED
+    return OUTCOMES.get(decision.disposition, decision.disposition.value)
+
+
+def _event(ctx: ChatContext, row: Any, card: str | None = None) -> dict[str, Any]:
     decision = decision_from_row(row)
     item = {
         "event_id": row["review_id"],
         "when": _when(float(row["start_time"])),
         "camera": row["camera"],
         "what": ", ".join(json.loads(row["labels"] or "[]")) or "motion",
-        "outcome": OUTCOMES.get(decision.disposition, decision.disposition.value) if decision else "not decided yet",
+        "outcome": _outcome(decision, card),
+        "card_sent": card == ALERT_CARD,
     }
     room = ctx.room_of(row["camera"])
     if room:
@@ -123,14 +145,16 @@ async def _recent_activity(ctx: ChatContext, args: dict[str, Any]) -> dict[str, 
     if isinstance(cameras, str):
         return {"ok": False, "error": cameras}
     hours = min(max(float(args.get("hours") or 24), 0.1), 24 * 14)
-    rows = ctx.store.recent_alerts(ctx.clock() - hours * 3600, limit=500)
+    since = ctx.clock() - hours * 3600
+    rows = ctx.store.recent_alerts(since, limit=500)
     rows = [r for r in rows if not cameras or r["camera"] in cameras]
+    cards = ctx.store.cards_between(CHANNEL, since, ctx.clock() + 1)
     if args.get("only_alerts"):
-        rows = [r for r in rows if r["disposition"] in ("alerted", "escalated_human")]
+        rows = [r for r in rows if r["disposition"] in ("alerted", "escalated_human")
+                or cards.get(r["review_id"]) == ALERT_CARD]
     counts: dict[str, int] = {}
     for row in rows:
-        decision = decision_from_row(row)
-        key = OUTCOMES.get(decision.disposition, decision.disposition.value) if decision else "not decided yet"
+        key = _outcome(decision_from_row(row), cards.get(row["review_id"]))
         counts[key] = counts.get(key, 0) + 1
     page = max(1, int(args.get("page") or 1))
     shown = rows[(page - 1) * PAGE : page * PAGE]
@@ -139,7 +163,7 @@ async def _recent_activity(ctx: ChatContext, args: dict[str, Any]) -> dict[str, 
         "window": f"the last {hours:g} h",
         "total": len(rows),
         "counts": counts,
-        "events": [_event(ctx, r) for r in shown],
+        "events": [_event(ctx, r, cards.get(r["review_id"])) for r in shown],
         "page": page,
         "more_pages": len(rows) > page * PAGE,
     }
@@ -150,12 +174,14 @@ async def _explain_decision(ctx: ChatContext, args: dict[str, Any]) -> dict[str,
     if isinstance(row, str):
         return {"ok": False, "error": row}
     decision = decision_from_row(row)
-    out = _event(ctx, row)
+    card = _card(ctx, row["review_id"])
+    out = _event(ctx, row, card)
     if decision is not None:
         out["decided_by"] = STAGE_LABELS.get(decision.stage, decision.stage.value)
         out["reason"] = plain_reason(decision)[:400]
         out["confidence"] = round(decision.confidence, 2)
-    out["card_sent"] = bool(ctx.store.query_one("SELECT 1 FROM notifications WHERE review_id=?", (row["review_id"],)))
+    if card == SPOT_CHECK:
+        out["spot_checked"] = True  # held back, then sent back by the digest to check
     if row["investigation_id"]:
         inv = ctx.store.get_investigation(row["investigation_id"])
         if inv is not None and inv["conclusion"]:

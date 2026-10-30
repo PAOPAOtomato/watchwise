@@ -13,12 +13,16 @@ of "armed", so that piece is ours.
 from __future__ import annotations
 
 import json
+import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from watchwise.config import ArmingSettings
 from watchwise.tools.base import ForensicTool, ToolContext, obj_schema
+
+logger = logging.getLogger(__name__)
 
 
 class ArmingState:
@@ -35,6 +39,8 @@ class ArmingState:
         # The state assumed until one is set (arming.default); read on each
         # call, so a /setup change applies at once.
         self.settings = settings if settings is not None else ArmingSettings()
+        # Called with each new state (the trace log keeps the history).
+        self.on_change: Callable[[dict[str, Any]], None] | None = None
 
     def get(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -51,6 +57,11 @@ class ArmingState:
         payload = {"state": state, "since": time.time(), "source": source}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(payload), encoding="utf-8")
+        if self.on_change is not None:
+            try:
+                self.on_change(payload)
+            except Exception:
+                logger.exception("could not log the arming change")
         return payload
 
 

@@ -123,7 +123,9 @@ class ChatService:
             text = prompts.typed_confirmation(waiting)
             now = self.clock()
             self.store.add_chat_message(conversation, "user", question, at=now)
-            self.store.add_chat_message(conversation, "assistant", text, at=now)
+            self.store.add_chat_message(conversation, "assistant", text, at=now, meta={
+                "about": about, "fixed": "typed_confirmation", "waiting": [p.id for p in waiting],
+            })
             logger.info("chat: a typed confirmation, answered without the model (%d waiting)", len(waiting))
             return ChatAnswer(text)
         state = prompts.house_state(
@@ -135,24 +137,33 @@ class ChatService:
         messages = [Message.system(prompts.SYSTEM), *history, asked]
         fit = _Fit(asked)
         started = time.monotonic()
+        meta: dict[str, Any] = {"about": about}
         try:
             async with asyncio.timeout(self.deadline_s):
                 text = await self._loop(ctx, messages, fit)
                 if self._unbacked(ctx, text, waiting):
                     logger.warning("chat: the answer claimed a change that no tool proposed; asking again")
+                    meta["guard"] = "claimed_change"
                     messages += [Message(role="assistant", content=text), Message.user(prompts.UNBACKED)]
                     text = await self._loop(ctx, messages, fit)
                     if self._unbacked(ctx, text, waiting):
+                        meta["guard"] = "nothing_changed"
                         text = prompts.NOTHING_CHANGED
         except TimeoutError:
+            meta["error"] = "timeout"
             text = self._unanswered(ctx, "it took too long")
         except Exception as exc:
             logger.exception("chat answer failed")
+            meta["error"] = type(exc).__name__
             text = self._unanswered(ctx, f"the model failed: {type(exc).__name__}")
+        start = next((i for i, m in enumerate(messages) if m is asked), 0)
+        meta.update(
+            tools=_steps(messages[start + 1:]), images=list(ctx.images), proposals=[p.id for p in ctx.proposed],
+            seconds=round(time.monotonic() - started, 1), prompt_tokens=fit.reported,
+        )
         now = self.clock()
         self.store.add_chat_message(conversation, "user", question, at=now)
-        self.store.add_chat_message(conversation, "assistant", text, at=now)
-        start = next((i for i, m in enumerate(messages) if m is asked), 0)
+        self.store.add_chat_message(conversation, "assistant", text, at=now, meta=meta)
         used = [m.name for m in messages[start:] if m.role == "tool"]  # not the history's
         logger.info(
             "chat: answered in %.1fs with %d tool call(s) %s, %d photo(s), %d proposal(s); "
@@ -373,3 +384,18 @@ def _shorten(text: str) -> str:
 def _render(outcome: dict[str, Any]) -> str:
     text = json.dumps(outcome, default=str, ensure_ascii=False)
     return text if len(text) <= RESULT_LIMIT else text[:RESULT_LIMIT] + " ...[truncated]"
+
+
+def _steps(messages: list[Message]) -> list[dict[str, Any]]:
+    """The tool calls behind one answer, each with what it returned, as the
+    model saw it (kept with the answer for the trace export, M3-9)."""
+    steps: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    for message in messages:
+        if message.role == "assistant":
+            for call in message.tool_calls:
+                by_id[call.id] = {"tool": call.name, "arguments": call.arguments, "ok": None, "result": ""}
+                steps.append(by_id[call.id])
+        elif message.role == "tool" and message.tool_call_id in by_id:
+            by_id[message.tool_call_id].update(ok=not message.is_error, result=message.content)
+    return steps

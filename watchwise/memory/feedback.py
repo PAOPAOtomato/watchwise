@@ -20,8 +20,24 @@ from dataclasses import dataclass
 from typing import Any
 
 from watchwise.memory.long_term import PatternLibrary
-from watchwise.memory.store import Store
+from watchwise.memory.store import SPOT_CHECK, Store
 from watchwise.types import Verdict
+
+
+def spot_check_record(store: Store, since: float = 0.0) -> dict[str, Any]:
+    """The digest's spot-checks (M2-7): of the held-back events sent back at
+    random, how many the owner said were right to hold back."""
+    rows = store.query(
+        "SELECT human_verdict FROM corrections WHERE created_at >= ? AND review_id IN "
+        "(SELECT review_id FROM notifications WHERE kind = ?)",
+        (since, SPOT_CHECK),
+    )
+    right = len([r for r in rows if r["human_verdict"] == Verdict.BENIGN.value])
+    return {
+        "answered": len(rows),
+        "right_to_hold_back": right,
+        "accuracy": round(right / len(rows), 4) if rows else None,
+    }
 
 
 @dataclass(slots=True)
@@ -217,11 +233,17 @@ class FeedbackLoop:
             else None,
             "auto_downgraded_reviewed": len(auto),
             "auto_downgrade_accuracy": round(len(correct) / len(auto), 4) if auto else None,
+            "spot_checks": self.spot_checks(since),
             "note": (
                 "auto_downgrade_accuracy is computed only over auto-resolved alerts "
-                "that a human subsequently reviewed; it is null until such reviews exist."
+                "that a human subsequently reviewed; it is null until such reviews exist. "
+                "spot_checks counts only the held-back events the digest sampled at "
+                "random, so the owner's choice of what to review can't bias it."
             ),
         }
+
+    def spot_checks(self, since: float = 0.0) -> dict[str, Any]:
+        return spot_check_record(self.store, since)
 
     def review_load(self, since: float = 0.0) -> dict[str, Any]:
         """How much made it to a human -- the manual-review-volume metric."""

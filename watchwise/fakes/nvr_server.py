@@ -102,7 +102,11 @@ class FakeNVRState:
         zones: list[str] | None = None,
         score: float = 0.82,
         description: str | None = None,
+        box: list[float] | None = None,
+        frame_time: float | None = None,
     ) -> dict[str, Any]:
+        """``box``: the object's relative [x, y, w, h] in its best frame, taken
+        at ``frame_time`` (Frigate's ``snapshot_frame_time``)."""
         start = start_time if start_time is not None else self.now
         event = {
             "id": event_id,
@@ -119,6 +123,9 @@ class FakeNVRState:
             "has_snapshot": True,
             "data": {"description": description} if description else {},
         }
+        if box is not None:
+            event["data"].update(box=box, snapshot_frame_time=frame_time if frame_time is not None else start,
+                                 attributes=[])
         self.events.append(event)
         return event
 

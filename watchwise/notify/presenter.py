@@ -57,10 +57,14 @@ OK, REAL = Button("✅ Expected", "ok"), Button("🚨 Alert me", "real")
 LOOK, SNOOZE, WHY = Button("🔍 Look closer", "look"), Button("🔇 Snooze", "snooze"), Button("❓ Why", "why")
 UNDO = Button("↩️ Undo", "undo")
 CLIP_LABEL = "▶️ Clip"
+SPOT_CHECK_KEYBOARD = "spot_check"
 KEYBOARDS: dict[str, list[list[Button]]] = {
     "full": [[OK, REAL], [LOOK, SNOOZE, WHY]],  # nothing investigated yet
     "standard": [[OK, REAL], [SNOOZE, WHY]],  # investigated, or being investigated
     "after_feedback": [[UNDO, WHY]],
+    # A held-back event the digest sent back (M2-7): it is over, so no Snooze
+    # or Look closer.
+    SPOT_CHECK_KEYBOARD: [[OK, REAL], [WHY]],
 }
 
 
@@ -121,6 +125,19 @@ def build_card(ctx: AlertContext, decision: Decision) -> AlertCard:
         keyboard=keyboard_for(decision),
         unknown_face=unknown_face(decision),
     )
+
+
+def build_spot_check(ctx: AlertContext, decision: Decision) -> AlertCard:
+    """A held-back event the digest sends back to check (M2-7): the card it
+    would have been, asking whether holding it back was right."""
+    card = build_card(ctx, decision)
+    subject = ", ".join(label.capitalize() for label in ctx.labels) or "Motion"
+    where = ctx.camera + (f" · {', '.join(ctx.zones)}" if ctx.zones else "")
+    card.title = f"🔍 Spot-check · {subject} · {where} · {safe_strftime(ctx.start_time, '%a %H:%M')}"
+    card.lines.insert(0, "Held back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.")
+    card.keyboard = SPOT_CHECK_KEYBOARD
+    card.unknown_face = False
+    return card
 
 
 def unknown_face(decision: Decision) -> bool:

@@ -161,7 +161,7 @@ def build_system(
     """Compose the service. ``config_path`` is the file ``config`` came from;
     /setup in Telegram writes the owner's answers there. ``chat_model``
     replaces the ``chat`` role's model (tests)."""
-    store = Store(config.memory.db_path)
+    store = Store(config.memory.db_path, log_days=config.memory.trace_days)
     watches = WatchBook(store)
     embedder = build_embedder(config.memory.embedding_backend, config.memory.embedding_dim)
     patterns = PatternLibrary(store, embedder, config.memory.pattern_half_life_days)
@@ -170,6 +170,7 @@ def build_system(
     nvr = nvr_client or NVRClient(config.nvr)
     roster = DutyRoster(config.duty_roster.path, config.duty_roster.timezone)
     arming = ArmingState(_arming_path(config), config.arming)
+    arming.on_change = lambda now: store.log_arming(now["state"], now["source"], now["since"])
 
     screening = config.screener_settings()
     vlm = build_vlm(screening)
@@ -237,12 +238,13 @@ def build_system(
                        arming=arming, roster=roster)
     if chat is not None:
         closers.append(chat.model.aclose)
-    notifier = bot = None
+    notifier = bot = digests = None
     if notify.telegram.enabled:
         notifier, bot, api = _build_telegram(
             config, store, nvr, feedback, patterns, investigations, memory_sink, telegram_api,
             arming=arming, face_feed=face_feed, config_path=config_path, chat=chat, proposals=proposals,
         )
+        digests = bot.digests if bot is not None else None
         if notifier is not None:
             sinks.append(notifier)
             if telegram_api is None:
@@ -290,7 +292,7 @@ def build_system(
         memory_sink=memory_sink,
         arming=arming,
         sources=sources,
-        background=[w for w in (warmer, notifier, bot) if w is not None],
+        background=[w for w in (warmer, notifier, bot, digests) if w is not None],
         warmer=warmer,
         notifier=notifier,
         bot=bot,
@@ -321,6 +323,7 @@ def _build_telegram(
     processed and available over the API.
     """
     from watchwise.notify.actions import ActionHandler
+    from watchwise.notify.digest import DigestScheduler
     from watchwise.notify.faces import FaceEnroller
     from watchwise.notify.setup_chat import SetupChat
     from watchwise.notify.telegram import TelegramAPI, TelegramBot, TelegramNotifier
@@ -362,8 +365,10 @@ def _build_telegram(
         face_feed=face_feed,
         send_images=settings.send_images,
     )
+    digests = DigestScheduler(store, feedback, notifier, config.notify.digest)
     bot = TelegramBot(
-        api, settings, handler, notifier, enroller=enroller, setup=setup, arming=arming, chat=chat, proposals=proposals
+        api, settings, handler, notifier, enroller=enroller, setup=setup, arming=arming, chat=chat, proposals=proposals,
+        digests=digests,
     )
     return notifier, bot, api
 

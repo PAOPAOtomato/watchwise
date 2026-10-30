@@ -127,6 +127,7 @@ def build_fake_telegram(state: FakeTelegramState | None = None) -> tuple[FastAPI
         if method in ("sendMessage", "sendPhoto"):
             message_id = state._next_message
             state._next_message += 1
+            reply_to = params.get("reply_to_message_id")
             state.sent.append(
                 {
                     "method": method,
@@ -135,8 +136,10 @@ def build_fake_telegram(state: FakeTelegramState | None = None) -> tuple[FastAPI
                     "text": params.get("text") or params.get("caption") or "",
                     "parse_mode": params.get("parse_mode"),
                     "reply_markup": markup,
-                    "reply_to": params.get("reply_to_message_id"),
+                    "reply_to": int(reply_to) if reply_to is not None else None,
                     "photo": files.get("photo"),
+                    # Multipart sends booleans as "true".
+                    "silent": params.get("disable_notification") in (True, "true"),
                 }
             )
             return ok({"message_id": message_id, "chat": {"id": int(params["chat_id"])}})

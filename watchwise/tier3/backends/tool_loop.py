@@ -132,7 +132,16 @@ class ToolLoopBackend(AgentBackend):
             usage.add(result.usage)
             if result.stop_reason == "refusal":
                 return _declined()
+            if not result.tool_calls and not _has_json_object(result.content):
+                # Live 2026-10-30 (B-039): the 8B model answered this turn in
+                # prose; keep what it said, and ask once for just the object.
+                runner.record_thought(result.content[:1500] or "(empty reply)")
+                messages += [result.as_message(), Message.user(NUDGE)]
+                result = await self.chat.complete(messages, tools=self.specs, tool_choice="none")
+                usage.add(result.usage)
             if result.tool_calls or not _has_json_object(result.content):
+                if not result.tool_calls:
+                    runner.record_thought(result.content[:1500] or "(empty reply)")
                 return Conclusion(
                     verdict=Verdict.UNCERTAIN,
                     confidence=0.0,

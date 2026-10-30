@@ -185,7 +185,73 @@ CREATE TABLE IF NOT EXISTS card_members (
     created_at      REAL NOT NULL,
     PRIMARY KEY (review_id, channel)
 );
+
+-- The daily digest (M2-7): one row per digest sent, so a restart neither
+-- repeats nor skips one. messages: {chat_id: message_id}; spot_checks: the
+-- held-back events it sent back as cards.
+CREATE TABLE IF NOT EXISTS digests (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind            TEXT NOT NULL,
+    since           REAL NOT NULL,
+    until           REAL NOT NULL,
+    sent_at         REAL NOT NULL,
+    messages        TEXT NOT NULL DEFAULT '{}',
+    spot_checks     TEXT NOT NULL DEFAULT '[]'
+);
+
+-- What happened, in order, for the trace export (M2-10): every decision
+-- (alerts keeps only the latest), every message Watchwise sent or edited as
+-- the phone showed it, every button, note and command of the owner, and
+-- every arming change. Kept for memory.trace_days.
+CREATE TABLE IF NOT EXISTS decision_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id       TEXT NOT NULL,
+    at              REAL NOT NULL,
+    decision        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decision_log ON decision_log(review_id, id);
+
+CREATE TABLE IF NOT EXISTS card_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    at              REAL NOT NULL,
+    channel         TEXT NOT NULL,
+    chat_id         TEXT NOT NULL,
+    message_id      TEXT NOT NULL,
+    review_id       TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    action          TEXT NOT NULL,
+    text            TEXT NOT NULL,
+    buttons         TEXT NOT NULL DEFAULT '{}',
+    has_image       INTEGER NOT NULL DEFAULT 0,
+    members         TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS owner_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    at              REAL NOT NULL,
+    channel         TEXT NOT NULL,
+    chat_id         TEXT NOT NULL,
+    message_id      TEXT,
+    kind            TEXT NOT NULL,
+    data            TEXT NOT NULL,
+    review_id       TEXT,
+    outcome         TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS arming_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    at              REAL NOT NULL,
+    state           TEXT NOT NULL,
+    source          TEXT NOT NULL
+);
 """
+
+LOGS = ("decision_log", "card_log", "owner_log", "arming_log")
+PRUNE_EVERY_S = 86400.0
+
+# notifications.kind: an alert card, or a held-back event sent back by the
+# digest to check (M2-7).
+ALERT_CARD, SPOT_CHECK = "alert", "spot_check"
 
 
 class Store:
@@ -196,27 +262,42 @@ class Store:
     trivial to reason about.
     """
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, *, log_days: float = 0.0):
+        """``log_days``: how long the trace logs are kept (0: for good)."""
         self.path = Path(db_path)
         if str(self.path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self.log_days = log_days
+        self._pruned = 0.0
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._migrate()
             self._conn.commit()
+        self._maybe_prune()
 
     def _migrate(self) -> None:
         """Columns added after a database was created; never drops anything."""
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(alerts)")}
         if "summary" not in columns:
             self._conn.execute("ALTER TABLE alerts ADD COLUMN summary TEXT")
+        if "memory_ids" not in columns:
+            # The learned patterns behind the latest decision, so a tap made
+            # after a restart still scores them (B-036).
+            self._conn.execute("ALTER TABLE alerts ADD COLUMN memory_ids TEXT NOT NULL DEFAULT '[]'")
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(note_requests)")}
         if "also" not in columns:
             # The other cameras' corrections from the same tap on a room card.
             self._conn.execute("ALTER TABLE note_requests ADD COLUMN also TEXT NOT NULL DEFAULT ''")
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(notifications)")}
+        if "kind" not in columns:
+            self._conn.execute(f"ALTER TABLE notifications ADD COLUMN kind TEXT NOT NULL DEFAULT '{ALERT_CARD}'")
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(chat_messages)")}
+        if "meta" not in columns:
+            # How an answer came about: tools, photos, proposals (M3-9).
+            self._conn.execute("ALTER TABLE chat_messages ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'")
 
     def close(self) -> None:
         with self._lock:
@@ -294,7 +375,7 @@ class Store:
             """
             UPDATE alerts SET disposition=?, severity=?, confidence=?, rationale=?,
                               screen_json=?, investigation_id=?, stage=?, updated_at=?,
-                              summary=COALESCE(?, summary)
+                              summary=COALESCE(?, summary), memory_ids=?
             WHERE review_id=?
             """,
             (
@@ -307,19 +388,79 @@ class Store:
                 decision["stage"],
                 time.time(),
                 decision.get("summary"),
+                json.dumps(list(decision.get("matched_memory_ids") or [])),
                 decision["review_id"],
             ),
         )
+        self.execute(
+            "INSERT INTO decision_log(review_id, at, decision) VALUES (?,?,?)",
+            (decision["review_id"], float(decision.get("decided_at") or time.time()), json.dumps(decision, default=str)),
+        )
+        self._maybe_prune()
+
+    # ---------------- the trace logs (M2-10) ----------------
+
+    def log_card(
+        self, channel: str, chat_id: Any, message_id: Any, review_id: str, *, kind: str, action: str, text: str,
+        buttons: dict[str, Any] | None = None, has_image: bool = False, members: list[str] | None = None,
+    ) -> None:
+        """A message Watchwise sent (``action`` sent) or edited (edited), as shown."""
+        self.execute(
+            "INSERT INTO card_log(at, channel, chat_id, message_id, review_id, kind, action, text, buttons, "
+            "has_image, members) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (time.time(), channel, str(chat_id), str(message_id), review_id, kind, action, text,
+             json.dumps(buttons or {}), int(has_image), json.dumps(members or [])),
+        )
+
+    def log_owner(
+        self, channel: str, chat_id: Any, message_id: Any, *, kind: str, data: str,
+        review_id: str | None = None, outcome: dict[str, Any] | None = None,
+    ) -> None:
+        """Something the owner did: a button, a note, a command."""
+        self.execute(
+            "INSERT INTO owner_log(at, channel, chat_id, message_id, kind, data, review_id, outcome) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (time.time(), channel, str(chat_id), None if message_id is None else str(message_id), kind, data,
+             review_id, json.dumps(outcome or {}, default=str)),
+        )
+
+    def log_arming(self, state: str, source: str, at: float | None = None) -> None:
+        self.execute(
+            "INSERT INTO arming_log(at, state, source) VALUES (?,?,?)",
+            (time.time() if at is None else float(at), state, source),
+        )
+
+    def prune_logs(self, before: float) -> int:
+        removed = 0
+        for table in LOGS:
+            removed += self.execute(f"DELETE FROM {table} WHERE at < ?", (before,)).rowcount
+        return removed
+
+    def _maybe_prune(self) -> None:
+        """At most once a day, drop log rows older than ``log_days``."""
+        now = time.time()
+        if self.log_days > 0 and now - self._pruned > PRUNE_EVERY_S:
+            self._pruned = now
+            self.prune_logs(now - self.log_days * 86400.0)
+
+    def memory_ids(self, review_id: str) -> list[str]:
+        """The learned patterns behind the event's latest decision (B-036)."""
+        row = self.query_one("SELECT memory_ids FROM alerts WHERE review_id=?", (review_id,))
+        try:
+            return [str(p) for p in json.loads(row["memory_ids"] or "[]")] if row is not None else []
+        except ValueError:
+            return []
 
     # ---------------- notifications ----------------
 
     def add_notification(
-        self, review_id: str, channel: str, chat_id: str, message_id: str, *, has_image: bool
+        self, review_id: str, channel: str, chat_id: str, message_id: str, *, has_image: bool,
+        kind: str = ALERT_CARD,
     ) -> None:
         self.execute(
             "INSERT OR REPLACE INTO notifications(review_id, channel, chat_id, message_id, "
-            "has_image, footer, keyboard, created_at) VALUES (?,?,?,?,?,'','full',?)",
-            (review_id, channel, str(chat_id), str(message_id), int(has_image), time.time()),
+            "has_image, footer, keyboard, created_at, kind) VALUES (?,?,?,?,?,'','full',?,?)",
+            (review_id, channel, str(chat_id), str(message_id), int(has_image), time.time(), kind),
         )
 
     def notifications_for(self, review_id: str, channel: str) -> list[sqlite3.Row]:
@@ -409,10 +550,14 @@ class Store:
 
     # ---------------- chat (D-065) ----------------
 
-    def add_chat_message(self, conversation: str, role: str, content: str, at: float | None = None) -> None:
+    def add_chat_message(
+        self, conversation: str, role: str, content: str, at: float | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> None:
+        """``meta``: how an answer came about (tools, photos, proposals; M3-9)."""
         self.execute(
-            "INSERT INTO chat_messages(conversation, role, content, created_at) VALUES (?,?,?,?)",
-            (conversation, role, content, time.time() if at is None else at),
+            "INSERT INTO chat_messages(conversation, role, content, created_at, meta) VALUES (?,?,?,?,?)",
+            (conversation, role, content, time.time() if at is None else at, json.dumps(meta or {}, default=str)),
         )
 
     def chat_history(self, conversation: str, limit: int) -> list[sqlite3.Row]:
@@ -452,13 +597,14 @@ class Store:
         return [str(r["review_id"]) for r in rows]
 
     def recent_cards(self, channel: str, since: float) -> list[sqlite3.Row]:
-        """Cards sent since then (one row per card, newest first), with the
-        camera and time span of the event each was sent for."""
+        """Alert cards sent since then (one row per card, newest first), with
+        the camera and time span of the event each was sent for."""
         return self.query(
             "SELECT a.review_id, a.camera, a.start_time, a.end_time FROM alerts a "
-            "WHERE a.review_id IN (SELECT DISTINCT review_id FROM notifications WHERE channel=? AND created_at>=?) "
+            "WHERE a.review_id IN (SELECT DISTINCT review_id FROM notifications "
+            "WHERE channel=? AND created_at>=? AND kind=?) "
             "ORDER BY a.start_time DESC",
-            (channel, since),
+            (channel, since, ALERT_CARD),
         )
 
     def alerts_on(self, cameras: list[str], since: float) -> list[sqlite3.Row]:
@@ -490,6 +636,62 @@ class Store:
         if exclude_review_id:
             rows = [r for r in rows if r["review_id"] != exclude_review_id]
         return rows
+
+    # ---------------- the daily digest (M2-7) ----------------
+
+    def alerts_between(self, since: float, until: float) -> list[sqlite3.Row]:
+        """Events that started in [since, until), oldest first."""
+        return self.query(
+            "SELECT * FROM alerts WHERE start_time>=? AND start_time<? ORDER BY start_time", (since, until)
+        )
+
+    def cards_between(self, channel: str, since: float, until: float) -> dict[str, str]:
+        """The events of the window that were on a card, with the card's kind
+        (an event that joined a room card was on an alert card)."""
+        kinds = {
+            str(r["review_id"]): str(r["kind"])
+            for r in self.query(
+                "SELECT n.review_id, n.kind FROM notifications n JOIN alerts a ON a.review_id = n.review_id "
+                "WHERE n.channel=? AND a.start_time>=? AND a.start_time<?",
+                (channel, since, until),
+            )
+        }
+        for r in self.query(
+            "SELECT m.review_id FROM card_members m JOIN alerts a ON a.review_id = m.review_id "
+            "WHERE m.channel=? AND a.start_time>=? AND a.start_time<?",
+            (channel, since, until),
+        ):
+            kinds.setdefault(str(r["review_id"]), ALERT_CARD)
+        return kinds
+
+    def answered_between(self, since: float, until: float) -> set[str]:
+        """The events of the window the owner has corrected (at any time)."""
+        rows = self.query(
+            "SELECT DISTINCT c.review_id FROM corrections c JOIN alerts a ON a.review_id = c.review_id "
+            "WHERE a.start_time>=? AND a.start_time<?",
+            (since, until),
+        )
+        return {str(r["review_id"]) for r in rows}
+
+    def corrections_between(self, since: float, until: float) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT * FROM corrections WHERE created_at>=? AND created_at<? ORDER BY created_at", (since, until)
+        )
+
+    def add_digest(
+        self, kind: str, since: float, until: float, messages: dict[str, str], spot_checks: list[str]
+    ) -> int:
+        cur = self.execute(
+            "INSERT INTO digests(kind, since, until, sent_at, messages, spot_checks) VALUES (?,?,?,?,?,?)",
+            (kind, since, until, time.time(), json.dumps(messages), json.dumps(spot_checks)),
+        )
+        return int(cur.lastrowid)
+
+    def last_digest(self, kind: str | None = None) -> sqlite3.Row | None:
+        """The digest covering the latest window (of this kind, if given)."""
+        if kind is None:
+            return self.query_one("SELECT * FROM digests ORDER BY until DESC, id DESC LIMIT 1")
+        return self.query_one("SELECT * FROM digests WHERE kind=? ORDER BY until DESC, id DESC LIMIT 1", (kind,))
 
     # ---------------- investigations ----------------
 

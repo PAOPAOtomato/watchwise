@@ -542,3 +542,51 @@ async def test_bad_tool_arguments_come_back_as_errors_the_model_can_fix(home):
     errors = [r["error"] for r in seen["r"]]
     assert "HH:MM" in errors[0] and "event_id" in errors[1] and "unknown tool" in errors[2]
     assert sys_.store.query("SELECT * FROM proposals") == []
+
+
+# ---------------------------------------------------------------- the trace record (M3-9)
+
+
+async def test_each_answer_keeps_how_it_came_about(home):
+    """An answer is stored with its tool steps (and what each returned), its
+    photos and proposals; the messages and taps go into the trace logs."""
+    sys_, state, model, _ = home
+    record(sys_, "p-1", "cam_door", minutes_ago=10)
+    model.script = [call("show_snapshot", event_id="p-1"), call("propose_arming", state="armed_away"),
+                    say("Here it is. Tap Confirm to arm Away.")]
+    answer, photo, offer = await ask(sys_, state, "show me the kitchen one and arm away")
+    (stored,) = sys_.store.query("SELECT meta FROM chat_messages WHERE role='assistant'")
+    meta = json.loads(stored["meta"])
+    assert [(s["tool"], s["ok"]) for s in meta["tools"]] == [("show_snapshot", True), ("propose_arming", True)]
+    assert meta["tools"][0]["arguments"] == {"event_id": "p-1"} and "cam_door" in meta["tools"][0]["result"]
+    assert meta["images"] == ["p-1"] and len(meta["proposals"]) == 1 and meta["prompt_tokens"] >= 0
+
+    await tap(sys_, state, state.buttons(offer)[0], offer)
+    kinds = [(r["kind"], r["action"]) for r in sys_.store.query("SELECT kind, action FROM card_log ORDER BY id")]
+    assert kinds == [("chat", "sent"), ("chat_photo", "sent"), ("proposal", "sent"), ("proposal", "edited")]
+    (pressed,) = sys_.store.query("SELECT data, outcome FROM owner_log")
+    assert pressed["data"].startswith("pr:ok:") and json.loads(pressed["outcome"])["done"] is True
+    assert [r["state"] for r in sys_.store.query("SELECT state FROM arming_log")] == ["armed_away"]
+
+
+async def test_an_alert_card_cleared_later_is_not_reported_as_no_card(home):
+    """B-038: live 12:34, a 🚨 card went out while armed away and the
+    investigation then cleared it; recent_activity called it "routine, no
+    card", and the chat answered "no alerts were triggered"."""
+    sys_, state, model, _ = home
+    record(sys_, "a-1", "cam_door", minutes_ago=20, disposition=Disposition.DOWNGRADED, reason="recognized as Ray")
+    sys_.store.add_notification("a-1", "telegram", str(CHAT), "700", has_image=True)
+    record(sys_, "h-1", "cam_door", minutes_ago=10)
+    sys_.store.add_notification("h-1", "telegram", str(CHAT), "701", has_image=True, kind="spot_check")
+    seen = {}
+    model.script = [call("recent_activity", hours=1), call("recent_activity", hours=1, only_alerts=True),
+                    call("explain_decision", event_id="h-1"),
+                    lambda m, t: (seen.update(r=tool_results(m)), say("One card, later cleared."))[1]]
+    await ask(sys_, state, "anything while I was away?")
+    everything, alerts, held = seen["r"]
+    by_id = {e["event_id"]: e for e in everything["events"]}
+    assert by_id["a-1"]["outcome"] == "card sent, then cleared as routine" and by_id["a-1"]["card_sent"] is True
+    assert by_id["h-1"]["outcome"] == "routine, no card" and by_id["h-1"]["card_sent"] is False
+    assert everything["counts"] == {"card sent, then cleared as routine": 1, "routine, no card": 1}
+    assert [e["event_id"] for e in alerts["events"]] == ["a-1"], "only_alerts keeps a card that was cleared"
+    assert held["event"]["card_sent"] is False and held["event"]["spot_checked"] is True
