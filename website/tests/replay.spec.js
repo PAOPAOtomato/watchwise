@@ -128,7 +128,9 @@ test('card evidence links decisions, investigation steps and the event illustrat
   await seek(page, Math.max(decision.t, investigation.finished.t, message.t));
   await page.locator(`#replay-phone [data-open-event="${decision.event}"]`).first().click();
   const panel = page.locator('#replay-evidence');
-  await panel.locator(`[data-decision="${decision.id}"]`).click();
+  await panel.locator(`[data-decision="${decision.id}"]`).focus();
+  await page.keyboard.press('Enter');
+  await expect(panel.locator(`[data-decision="${decision.id}"]`)).toBeFocused();
   await expect(panel).toContainText(decision.reason);
   for (const step of investigation.steps) {
     const details = panel.locator(`[data-evidence-id="${step.evidence_id}"]`);
@@ -297,4 +299,41 @@ test('a missing reviewed run uses the explicitly invented, photo-free fixture', 
   await expect(page.locator('#replay-clock')).toBeVisible();
   await expect(page.locator('body')).toContainText(/invented fixture/i);
   await expect(page.locator('body')).toContainText(/no photos/i);
+});
+
+
+test('spot-check answers stay with their own digest when an event is sampled again', async ({ page }) => {
+  const trace = await fixture();
+  const original = trace.digests.find((item) => item.sent && item.spot_checks.length);
+  const event = original.spot_checks[0];
+  trace.digests.push({ ...original, id: 'g-repeat', t: 116, messages: [], spot_checks: [event] });
+  const firstCard = trace.messages.find((message) => message.kind === 'spot_check' && message.event === event && message.action === 'sent');
+  trace.messages.push({ ...firstCard, id: 'm-repeat', message: 'tg-repeat', t: 117 });
+  trace.owner_actions.push({ id: 'a-repeat', t: 119, at: trace.meta.window.end, kind: 'button', on_message: 'tg-repeat', action: 'real', event, outcome: { spot_check: true, footer: 'Repeated sample answer', corrections: [] } });
+  await open(page, trace);
+  await seek(page, 120);
+  await expect(page.locator(`[data-digest="${original.id}"]`)).not.toContainText('Repeated sample answer');
+  await expect(page.locator('[data-digest="g-repeat"]')).toContainText('Repeated sample answer');
+});
+
+test('an exported frame displays at natural size without enlargement', async ({ page }) => {
+  const trace = await fixture();
+  // A generated solid-color JPEG verifies rendering without introducing a photo.
+  const jpeg = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 24; canvas.height = 16;
+    const context = canvas.getContext('2d'); context.fillStyle = '#233c30'; context.fillRect(0, 0, 24, 16);
+    return canvas.toDataURL('image/jpeg').split(',')[1];
+  });
+  trace.meta.privacy.frames = 'blurred';
+  trace.frames.push({ id: 'f-test', event: 'e01', file: 'frames/f-test.jpg', privacy: 'blurred', width: 960, height: 640 });
+  const first = chronological(trace.messages).find((message) => message.action === 'sent');
+  first.frame = 'f-test'; first.has_photo = true;
+  await page.route('**/data/run-2026-10-30/frames/f-test.jpg', (route) => route.fulfill({ contentType: 'image/jpeg', body: Buffer.from(jpeg, 'base64') }));
+  await open(page, trace); await seek(page, first.t);
+  const image = page.locator(`#replay-phone [data-message="${first.message}"] img`);
+  await image.scrollIntoViewIfNeeded();
+  await expect.poll(() => image.evaluate((element) => element.naturalWidth)).toBe(24);
+  expect((await image.boundingBox()).width).toBeLessThanOrEqual(24);
+  expect((await image.boundingBox()).height).toBeLessThanOrEqual(16);
+  await expect(image).toHaveAttribute('src', /frames\/f-test\.jpg$/);
 });

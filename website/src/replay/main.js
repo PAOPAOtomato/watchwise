@@ -12,7 +12,7 @@ const node = (tag, text, className) => {
 };
 const p = (text, className) => node('p', text, className);
 const button = (text, click, className = 'record-button') => {
-  const element = node('button', text, className); element.type = 'button'; element.addEventListener('click', click); return element;
+  const element = node('button', text, className); element.type = 'button'; element.dataset.focusKey = text; element.addEventListener('click', click); return element;
 };
 const json = (value) => typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 const time = (at) => typeof at === 'string' ? at.slice(11, 19) : '—';
@@ -239,13 +239,14 @@ function renderDigests() {
   const digests = trace.digests.filter((digest) => digest.t <= clock);
   if (!digests.length) { parent.append(p(t('No digest yet.'), 'empty-note')); return; }
   for (const digest of digests) {
-    const item = node('article', null, 'digest-record');
+    const item = node('article', null, 'digest-record'); item.dataset.digest = digest.id;
     item.append(node('h3', `${t(digest.kind === 'scheduled' ? 'Scheduled digest' : 'Requested digest')} · ${digest.id}`), p(`${digest.covers?.start ?? ''} → ${digest.covers?.end ?? ''}`, 'record-meta'));
     if (!digest.sent) item.append(p(t('No message sent.')));
     for (const id of digest.messages ?? []) item.append(button(`${t('Open phone message')} · ${id}`, () => jumpMessage(id)));
     for (const eventId of digest.spot_checks ?? []) {
       const spot = node('div', null, 'spot-record'); spot.append(eventButton(eventId, `${t('Spot-check')} · ${eventId}`));
-      const messages = trace.messages.filter((message) => message.kind === 'spot_check' && message.event === eventId && message.t <= clock);
+      const nextDigestTime = Math.min(...trace.digests.filter((entry) => entry.t > digest.t).map((entry) => entry.t), Infinity);
+      const messages = trace.messages.filter((message) => message.action === 'sent' && message.kind === 'spot_check' && message.event === eventId && message.t >= digest.t && message.t < nextDigestTime && message.t <= clock);
       if (messages.length) spot.append(button(t('Open phone message'), () => jumpMessage(messages[0].message)));
       const answers = trace.owner_actions.filter((action) => action.t <= clock && action.t >= digest.t && action.event === eventId && action.outcome?.spot_check && messages.some((message) => message.message === action.on_message));
       if (!answers.length) spot.append(p(t('Awaiting recorded answer')));
@@ -344,9 +345,22 @@ function setTime(value, force = false) {
   snapshot = replayAt(trace, clock);
   $('replay-arming').textContent = `${t('Arming')} · ${armingName(snapshot.arming?.state)}`;
   document.querySelectorAll('.timeline-item').forEach((item) => { item.classList.toggle('occurred', Number(item.dataset.t) <= clock); if (item.dataset.event) item.setAttribute('aria-pressed', String(item.dataset.event === selectedEvent)); });
+  const focused = document.activeElement;
+  const region = focused.closest('#replay-phone, #replay-evidence, #replay-learning, #replay-digests, #replay-conversations');
+  const focusKey = focused.dataset.focusKey;
+  const detailKey = focused.matches('summary') ? focused.parentElement.dataset.detailKey : null;
+  const peers = region && focusKey ? [...region.querySelectorAll('[data-focus-key]')].filter((item) => item.dataset.focusKey === focusKey) : [];
+  const focusIndex = peers.indexOf(focused);
   const open = new Set([...document.querySelectorAll('details[open][data-detail-key]')].map((item) => item.dataset.detailKey));
   renderPhone(snapshot); renderEvidence(); renderLearning(); renderDigests(); renderChat();
   document.querySelectorAll('details[data-detail-key]').forEach((item) => { item.open = open.has(item.dataset.detailKey); });
+  if (region && !focused.isConnected) {
+    const replacement = detailKey
+      ? [...region.querySelectorAll('details[data-detail-key]')].find((item) => item.dataset.detailKey === detailKey)?.querySelector('summary')
+      : [...region.querySelectorAll('[data-focus-key]')].filter((item) => item.dataset.focusKey === focusKey)[focusIndex];
+    if (replacement) replacement.focus({ preventScroll: true });
+    else { region.setAttribute('tabindex', '-1'); region.focus({ preventScroll: true }); }
+  }
   lastRenderKey = `${position}:${selectedEvent}:${selectedDecision}:${language}`;
 }
 function pause() { playing = false; lastTick = null; $('replay-play').textContent = t('Play'); $('replay-play').setAttribute('aria-pressed', 'false'); }

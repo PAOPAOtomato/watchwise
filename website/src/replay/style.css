@@ -3,7 +3,7 @@
 .replay-header-actions { display:flex; align-items:center; gap:24px; font-size:12px; }
 .replay-header select,.playback select { padding:10px; border:1px solid #b8c7b3; border-radius:8px; min-height:44px; background:#fbfcf6; color:var(--ink); }
 .replay-intro { padding-block:58px 30px; max-width:780px; }
-.replay-intro h1 { margin:18px 0; font-size:clamp(38px,5vw,62px); letter-spacing:-2.7px; line-height:1.15; }
+.replay-intro h1 { text-wrap:balance; margin:18px 0; font-size:clamp(38px,5vw,62px); letter-spacing:-2.7px; line-height:1.15; }
 .replay-intro > p:not(.eyebrow) { font-size:15px; line-height:1.8; color:#56654f; }
 .replay-intro .run-qualification { font-size:12px!important; margin-top:12px; }
 .run-source { padding:18px 22px; border:1px solid #cbd5bf; border-radius:12px; background:#edf1e4; line-height:1.7; font-size:12px; overflow-wrap:anywhere; }
@@ -110,7 +110,7 @@
 }
 @media (max-width:680px) {
  .replay-wrap { padding-inline:18px; } .replay-header { min-height:80px; gap:10px; } .replay-header .wordmark { font-size:21px; } .replay-header-actions { gap:12px; } .replay-header-actions > a { display:none; }
- .replay-intro { padding-block:34px 23px; } .replay-intro h1 { letter-spacing:-1.7px; } .run-source { padding:16px; } .playback { padding:18px; } .playback-row { gap:10px; } .playback h2 { width:100%; } #replay-time { margin-right:auto; }
+ .replay-intro { padding-block:34px 23px; } .replay-intro h1 { text-wrap:balance; letter-spacing:-1.7px; } .run-source { padding:16px; } .playback { padding:18px; } .playback-row { gap:10px; } .playback h2 { width:100%; } #replay-time { margin-right:auto; }
  .playback-controls { gap:6px; } .playback button { padding-inline:12px; } .speed-label { margin-left:0; gap:5px; } .speed-label > span { font-size:11px; } .playback select { padding-inline:5px; }
  .section-label { display:block; } .section-label p,.section-label > span { display:block; margin-top:5px; } .replay-grid,.record-grid,#replay-metrics { grid-template-columns:minmax(0,1fr); } .replay-grid { gap:28px; }
  .phone-column { position:static; max-width:380px; width:100%; margin:auto; } #replay-phone { height:490px; } .record-grid { margin-top:24px; } .replay-panel { padding:19px; } .timeline-item { flex-basis:153px; } .phone-button,.record-button { min-height:44px; }
