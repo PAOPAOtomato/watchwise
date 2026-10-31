@@ -38,10 +38,93 @@ The translation covers page copy, event stories, evidence, answers, controls, ac
 
 English page copy lives in `index.html` and `src/main.js`. [`src/locales/zh-CN.js`](src/locales/zh-CN.js) maps English UI text to Chinese and supplies event-text overlays and answers; [`src/i18n.js`](src/i18n.js) applies the selected language without replacing the static markup. Update the translation whenever English text changes, including accessible labels. Both languages share the event mechanics in `src/scenario.js`. Run the browser checks for both languages, including persistence, switching during a corrected story, typed questions, keyboard controls, and mobile layouts.
 
+## Replay a trace
+
+Open `/replay.html` (or `/replay.html?lang=zh-CN`) from the product page. This
+page reads the [trace 1.x contract](../docs/trace-format.md); it does not call
+Watchwise, Telegram, Frigate, or a model. Its phone follows message timestamps,
+updates edited messages in place, and shows the owner's recorded taps, toasts,
+and card footers. Play, pause, step, restart, speed, and the scrubber control the
+replay clock. Speeds above 1× accelerate recorded time.
+
+The whole-window timeline includes every event, including events with no alert
+card, and each arming change. Timeline event labels show final outcomes; opening
+one seeks to its final decision. Card evidence follows the latest decision at
+the current time unless a visitor explicitly selects an earlier decision.
+Investigation tool disclosures retain their `evidence_id`; the exported event
+frame may be from a different moment than the phone's original photo.
+
+Learning follows correction effects to a pattern and then later decisions that
+reference it. A gated hold-back is distinguished from a pattern informing a
+model. Pattern descriptions are from the export, not reconstructed history.
+Digest spot-check cards link back to their events and recorded answers. Chat
+shows original questions and answers, optional tool disclosures and photos, and
+proposals whose outcomes appear at their recorded decision time. Phone buttons
+seek to recorded taps; unavailable taps and recording links without addresses
+are disabled. No browser control applies a change to an installation.
+
+All counters come from the trace's `metrics`, with each block's original label.
+They describe the entire window, not the current playback position. The page
+calculates no new accuracy rates or performance statistics. A recorded run is
+one run on one setup. The supplied fixture is explicitly labeled **simulated,
+invented text, no photos** and is not a measured run.
+
+### Supply the reviewed run
+
+The owner reviews the export, then places only the reviewed `trace.json` and
+its referenced `frames/` in:
+
+```text
+website/public/data/run-2026-10-30/
+  trace.json
+  frames/
+```
+
+Until that file exists, a **404 only** selects the small
+[`public/data/replay-fixture/trace.json`](public/data/replay-fixture/trace.json).
+A malformed file, incompatible format/version, private frame setting, or other
+HTTP failure produces an error instead of silently selecting the fixture. Vite
+uses multiple-page mode so a missing JSON file stays a 404. `npm run build`
+copies the public data into `dist/data/`; rebuild and preview after replacing
+it. The invented fixture is tracked. Other data directories stay Git-ignored;
+after reviewing the real run, explicitly add only its approved `trace.json`
+and referenced JPEG files with `git add -f` when you intend to publish them. Keep using the existing Vercel project and settings below.
+
+Review every exported image and all text before placing files in `public/`.
+Publishing that directory makes its contents available to visitors. Do not
+include private footage, credentials, addresses, or identifiable people. Keep
+aliases such as Resident A unchanged. The reader rejects `privacy.frames:
+full` and frames without `privacy: blurred`; this is not a substitute for the
+owner's review. Frame URLs stay inside the selected trace's `frames/` directory.
+Images are never enlarged beyond their exported or natural size, sharpened, or
+supplemented with other camera photos. Missing photos use the site's original
+SVG, explicitly labeled as an illustration.
+
+UI controls, labels, and accessible names are available in English and Simplified
+Chinese. Trace text, button labels, metric labels, aliases, tool output, and
+owner messages remain as recorded. Language changes preserve playback position
+and selected evidence. The only persisted preference is the website language.
+Telegram HTML is rebuilt from text using a `b`, `i`, `code`, and safe `a`
+whitelist; no trace HTML is inserted directly into the document. Unknown fields
+in compatible 1.x versions are ignored.
+
+The replay adds no runtime dependency. Browser tests use the invented fixture,
+including out-of-order source entries, edits, taps, evidence, learning, chat,
+digests, metrics, unsafe markup, format/privacy checks, language switching,
+keyboard controls, reduced motion, and phone-width layouts. They do not verify
+the content of an owner-supplied recording.
+
 ## Structure and source of truth
 
 | File | Purpose |
 | --- | --- |
+| [`replay.html`](replay.html) | Trace replay entry page |
+| [`src/replay/main.js`](src/replay/main.js) | Playback, phone, evidence, learning, digest, chat, and supplied metrics |
+| [`src/replay/trace.js`](src/replay/trace.js) | Trace reader, chronological snapshots, safe markup and frame URLs |
+| [`src/replay/strings.js`](src/replay/strings.js) | English and Simplified Chinese replay UI |
+| [`src/replay/style.css`](src/replay/style.css) | Responsive phone and record panels |
+| [`vite.config.js`](vite.config.js) | Existing product page and replay page in one static build |
+| [`tests/replay.spec.js`](tests/replay.spec.js) | Trace replay browser checks |
 | [`index.html`](index.html) | Product story, navigation, installation copy, and accessible interface structure |
 | [`src/main.js`](src/main.js) | Selected event, panels, correction/replay/reset, conversation, and clipboard controls |
 | [`src/scenario.js`](src/scenario.js) | Authored event records, evidence, routing explanations, and deterministic question responses |

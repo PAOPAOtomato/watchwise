@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Follow a Watchwise run from phone cards to evidence, corrections, and the daily digest." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <title>Watchwise — Replay a run</title>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-ui="Skip to content">Skip to content</a>
+  <header class="replay-header replay-wrap">
+    <a class="wordmark" data-home href="/"><img src="/favicon.svg" width="32" height="32" alt="" />watchwise</a>
+    <div class="replay-header-actions"><a data-home href="/" data-ui="Back to the experience">Back to the experience</a><label><span class="sr-only" data-ui="Language">Language</span><select id="language"><option value="en" lang="en">English</option><option value="zh-CN" lang="zh-CN">简体中文</option></select></label></div>
+  </header>
+  <main id="main" class="replay-wrap">
+    <section class="replay-intro">
+      <p class="eyebrow" data-ui="WATCHWISE / THE RECORD">WATCHWISE / THE RECORD</p>
+      <h1 data-ui="One run. Every decision.">One run. Every decision.</h1>
+      <p data-ui="Follow the phone, inspect the evidence, and see what a correction taught.">Follow the phone, inspect the evidence, and see what a correction taught.</p>
+      <p class="run-qualification" data-ui="A recording describes one run on one setup, not accuracy or performance elsewhere.">A recording describes one run on one setup, not accuracy or performance elsewhere.</p>
+    </section>
+    <p id="replay-error" role="alert" hidden></p>
+    <p id="replay-loading" role="status" data-ui="Loading the run…">Loading the run…</p>
+    <div id="replay-app" hidden>
+      <aside class="run-source"><span id="replay-source"></span><p id="replay-meta"></p><p data-ui="Trace text stays as recorded. Buttons replay recorded taps; they do not change an installation.">Trace text stays as recorded. Buttons replay recorded taps; they do not change an installation.</p></aside>
+      <section class="playback" aria-labelledby="playback-title">
+        <div class="playback-row"><h2 id="playback-title" data-ui="Replay the window">Replay the window</h2><output id="replay-time"></output><span id="replay-arming" class="pill"></span></div>
+        <label class="sr-only" for="replay-clock" data-ui="Replay position">Replay position</label><input id="replay-clock" type="range" min="0" max="120" step="0.1" value="0" />
+        <div class="playback-controls"><button id="replay-play" class="primary" type="button" data-ui="Play">Play</button><button id="replay-step" type="button" data-ui="Step">Step</button><button id="replay-reset" type="button" data-ui="Restart">Restart</button><label class="speed-label"><span data-ui="Speed">Speed</span><select id="replay-speed"><option value="1">1×</option><option value="4" selected>4×</option><option value="16">16×</option><option value="60">60×</option></select></label><span class="control-note" data-ui="Above 1× plays faster than recorded time.">Above 1× plays faster than recorded time.</span></div>
+      </section>
+      <section class="timeline-section" aria-labelledby="timeline-title"><div class="section-label"><h2 id="timeline-title" data-ui="The whole window">The whole window</h2><p data-ui="All events and arming changes · final outcomes">All events and arming changes · final outcomes</p></div><div id="replay-timeline" class="run-timeline"></div></section>
+      <div class="replay-grid">
+        <section class="phone-column" aria-labelledby="phone-title"><div class="section-label"><h2 id="phone-title" data-ui="On the owner’s phone">On the owner’s phone</h2><span data-ui="Recorded messages">Recorded messages</span></div>
+          <div class="phone-shell"><div class="phone-top"><span class="phone-camera" aria-hidden="true"></span><strong>Watchwise</strong><span data-ui="Message replay">Message replay</span></div><div id="replay-phone" tabindex="0" aria-label="Recorded messages"></div><div id="replay-toast" role="status" aria-live="polite"></div><div class="phone-bottom" aria-hidden="true"></div></div>
+          <div id="replay-owner" class="owner-log"></div>
+        </section>
+        <div class="evidence-column">
+          <section class="replay-panel" aria-labelledby="evidence-title"><p class="eyebrow" data-ui="THE REASON BEHIND THE CARD">THE REASON BEHIND THE CARD</p><h2 id="evidence-title" data-ui="Follow the evidence">Follow the evidence</h2><div id="replay-evidence"></div></section>
+          <section class="replay-panel learning-panel" aria-labelledby="learning-title"><p class="eyebrow" data-ui="A CORRECTION CARRIED FORWARD">A CORRECTION CARRIED FORWARD</p><h2 id="learning-title" data-ui="You taught it. What happened next?">You taught it. What happened next?</h2><div id="replay-learning"></div></section>
+        </div>
+      </div>
+      <div class="record-grid"><section class="replay-panel" aria-labelledby="digest-title"><h2 id="digest-title" data-ui="The digest & spot-checks">The digest & spot-checks</h2><div id="replay-digests"></div></section><section class="replay-panel" aria-labelledby="chat-title"><h2 id="chat-title" data-ui="Ask Watchwise">Ask Watchwise</h2><div id="replay-conversations"></div></section></div>
+      <section class="replay-panel metrics-panel" aria-labelledby="metrics-title"><div class="section-label"><h2 id="metrics-title" data-ui="Figures from this trace">Figures from this trace</h2><span data-ui="Whole-window values · not live counters">Whole-window values · not live counters</span></div><p data-ui="Values and labels come directly from the trace. No rates are calculated here.">Values and labels come directly from the trace. No rates are calculated here.</p><div id="replay-metrics"></div></section>
+    </div>
+  </main>
+  <footer class="replay-footer replay-wrap"><a data-home href="/" data-ui="Explore Watchwise">Explore Watchwise</a><a href="https://github.com/PAOPAOtomato/watchwise" target="_blank" rel="noreferrer">GitHub ↗</a></footer>
+  <noscript>This replay needs JavaScript. 此回放需要启用 JavaScript。</noscript>
+  <script type="module" src="/src/replay/main.js"></script>
+</body>
+</html>

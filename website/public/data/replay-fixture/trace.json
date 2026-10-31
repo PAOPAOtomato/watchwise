@@ -1,0 +1,842 @@
+{
+  "format": "watchwise-trace",
+  "version": "1.0",
+  "meta": {
+    "title": "Invented fixture · a desk arrival",
+    "source": "simulated",
+    "generated_at": "2026-10-30T12:02:00.000-05:00",
+    "generator": {
+      "name": "watchwise website fixture",
+      "version": "1.0",
+      "commit": null
+    },
+    "window": {
+      "start": "2026-10-30T12:00:00.000-05:00",
+      "end": "2026-10-30T12:02:00.000-05:00",
+      "seconds": 120
+    },
+    "timezone": "America/Chicago",
+    "utc_offset_minutes": -300,
+    "models": {
+      "screener": "fixture/vision",
+      "investigator": "fixture/investigator",
+      "chat": "fixture/chat"
+    },
+    "machine": "Invented setup — no measurement",
+    "privacy": {
+      "frames": "none",
+      "names": "replaced",
+      "people_in_frames": "No photos. All text is invented.",
+      "identities": "Invented aliases only."
+    }
+  },
+  "cameras": [
+    {
+      "id": "illustrated_room",
+      "room": "desk room",
+      "notes": "Invented room for the no-photo fixture."
+    }
+  ],
+  "events": [
+    {
+      "id": "e01",
+      "camera": "illustrated_room",
+      "at": "2026-10-30T12:00:05.000-05:00",
+      "t": 5,
+      "end": "2026-10-30T12:00:13.000-05:00",
+      "duration_s": 8,
+      "labels": [
+        "person"
+      ],
+      "zones": [],
+      "outcome": {
+        "disposition": "alerted",
+        "stage": "investigated",
+        "confidence": null,
+        "reason": "The arrival could not be explained by the available evidence.",
+        "summary": "A person arrived and sat beside the desk."
+      },
+      "frame": null
+    },
+    {
+      "id": "e02",
+      "camera": "illustrated_room",
+      "at": "2026-10-30T12:00:35.000-05:00",
+      "t": 35,
+      "end": "2026-10-30T12:00:43.000-05:00",
+      "duration_s": 8,
+      "labels": [
+        "person"
+      ],
+      "zones": [],
+      "outcome": {
+        "disposition": "downgraded",
+        "stage": "gated",
+        "confidence": null,
+        "reason": "A trusted desk-arrival pattern matched while Home.",
+        "summary": null
+      },
+      "frame": null
+    },
+    {
+      "id": "e03",
+      "camera": "illustrated_room",
+      "at": "2026-10-30T12:00:45.000-05:00",
+      "t": 45,
+      "end": "2026-10-30T12:00:53.000-05:00",
+      "duration_s": 8,
+      "labels": [
+        "person"
+      ],
+      "zones": [],
+      "outcome": {
+        "disposition": "downgraded",
+        "stage": "face",
+        "confidence": null,
+        "reason": "Frigate recognized Resident A.",
+        "summary": null
+      },
+      "frame": null
+    }
+  ],
+  "decisions": [
+    {
+      "id": "d001",
+      "event": "e01",
+      "at": "2026-10-30T12:00:06.000-05:00",
+      "t": 6,
+      "stage": "screened",
+      "disposition": "alerted",
+      "severity": "alert",
+      "confidence": null,
+      "reason": "Analyzing the arrival.",
+      "rationale": "Analyzing the arrival.",
+      "analyzing": true,
+      "screen": null,
+      "investigation": null,
+      "summary": null,
+      "patterns": [],
+      "history": "complete"
+    },
+    {
+      "id": "d002",
+      "event": "e01",
+      "at": "2026-10-30T12:00:09.000-05:00",
+      "t": 9,
+      "stage": "screened",
+      "disposition": "escalated_human",
+      "severity": "detection",
+      "confidence": null,
+      "reason": "An arrival needs a closer look.",
+      "rationale": "An arrival needs a closer look.",
+      "analyzing": false,
+      "screen": {
+        "verdict": "uncertain",
+        "confidence": null,
+        "reason": "The person stopped beside the desk.",
+        "tags": [
+          "person"
+        ],
+        "model": "fixture/vision",
+        "latency_ms": null,
+        "frames_used": null,
+        "error": null
+      },
+      "investigation": "i01",
+      "summary": null,
+      "patterns": [],
+      "history": "complete"
+    },
+    {
+      "id": "d003",
+      "event": "e01",
+      "at": "2026-10-30T12:00:16.000-05:00",
+      "t": 16,
+      "stage": "investigated",
+      "disposition": "alerted",
+      "severity": "alert",
+      "confidence": null,
+      "reason": "The arrival could not be explained by the available evidence.",
+      "rationale": "The arrival could not be explained by the available evidence.",
+      "analyzing": false,
+      "screen": null,
+      "investigation": "i01",
+      "summary": "A person arrived and sat beside the desk.",
+      "patterns": [],
+      "history": "complete"
+    },
+    {
+      "id": "d004",
+      "event": "e02",
+      "at": "2026-10-30T12:00:36.000-05:00",
+      "t": 36,
+      "stage": "gated",
+      "disposition": "downgraded",
+      "severity": "detection",
+      "confidence": null,
+      "reason": "A trusted desk-arrival pattern matched while Home.",
+      "rationale": "A trusted desk-arrival pattern matched while Home.",
+      "analyzing": false,
+      "screen": null,
+      "investigation": null,
+      "summary": null,
+      "patterns": [
+        "p01"
+      ],
+      "history": "complete"
+    },
+    {
+      "id": "d005",
+      "event": "e03",
+      "at": "2026-10-30T12:00:46.000-05:00",
+      "t": 46,
+      "stage": "face",
+      "disposition": "downgraded",
+      "severity": "detection",
+      "confidence": null,
+      "reason": "Frigate recognized Resident A.",
+      "rationale": "Frigate recognized Resident A.",
+      "analyzing": false,
+      "screen": null,
+      "investigation": null,
+      "summary": null,
+      "patterns": [],
+      "history": "complete"
+    }
+  ],
+  "investigations": [
+    {
+      "id": "i01",
+      "event": "e01",
+      "status": "done",
+      "verdict": "suspicious",
+      "confidence": null,
+      "conclusion": "The records did not explain this arrival. Ask the owner.",
+      "model": "fixture/investigator",
+      "started": {
+        "at": "2026-10-30T12:00:09.000-05:00",
+        "t": 9
+      },
+      "finished": {
+        "at": "2026-10-30T12:00:16.000-05:00",
+        "t": 16
+      },
+      "seconds": null,
+      "steps": [
+        {
+          "evidence_id": "i01/1",
+          "iteration": 1,
+          "tool": "get_device_status",
+          "arguments": {
+            "camera": "illustrated_room"
+          },
+          "result": "The invented camera is available.",
+          "latency_ms": null,
+          "error": null
+        },
+        {
+          "evidence_id": "i01/2",
+          "iteration": 2,
+          "tool": "describe_historical_frames",
+          "arguments": {
+            "event_id": "e01"
+          },
+          "result": "Invented evidence: the room was empty before the person arrived.",
+          "latency_ms": null,
+          "error": null
+        }
+      ],
+      "thoughts": [],
+      "observations": [],
+      "inferences": [],
+      "unknowns": [],
+      "error": null
+    }
+  ],
+  "frames": [],
+  "messages": [
+    {
+      "id": "m001",
+      "message": "tg01",
+      "at": "2026-10-30T12:00:06.000-05:00",
+      "t": 6,
+      "action": "sent",
+      "kind": "alert",
+      "event": "e01",
+      "members": [],
+      "text": "<b>⏳ Analyzing…</b>\nA person arrived in the desk room.",
+      "buttons": [],
+      "has_photo": true,
+      "frame": null
+    },
+    {
+      "id": "m002",
+      "message": "tg01",
+      "at": "2026-10-30T12:00:17.000-05:00",
+      "t": 17,
+      "action": "edited",
+      "kind": "alert",
+      "event": "e01",
+      "members": [],
+      "text": "<b>Person · desk room</b>\nWhy: the arrival could not be explained by the available evidence.\n<i>After an investigation</i>",
+      "buttons": [
+        [
+          {
+            "label": "✅ Expected",
+            "action": "ok",
+            "event": "e01"
+          },
+          {
+            "label": "🚨 Alert me",
+            "action": "real",
+            "event": "e01"
+          }
+        ],
+        [
+          {
+            "label": "❓ Why",
+            "action": "why",
+            "event": "e01"
+          },
+          {
+            "label": "▶️ Clip",
+            "link": true
+          }
+        ]
+      ],
+      "has_photo": true,
+      "frame": null
+    },
+    {
+      "id": "m003",
+      "message": "tg01",
+      "at": "2026-10-30T12:00:21.000-05:00",
+      "t": 21,
+      "action": "edited",
+      "kind": "alert",
+      "event": "e01",
+      "members": [],
+      "text": "<b>Person · desk room</b>\nA person arrived and sat beside the desk.\n✅ Marked expected by owner.",
+      "buttons": [
+        [
+          {
+            "label": "↩️ Undo",
+            "action": "undo",
+            "corrections": [
+              "c01"
+            ]
+          }
+        ]
+      ],
+      "has_photo": true,
+      "frame": null
+    },
+    {
+      "id": "m004",
+      "message": "tg02",
+      "at": "2026-10-30T12:01:00.000-05:00",
+      "t": 60,
+      "action": "sent",
+      "kind": "chat",
+      "event": "e02",
+      "members": [],
+      "text": "The later desk arrival was held back by the trusted pattern. The house was Home. The photo is omitted from this fixture.",
+      "buttons": [],
+      "has_photo": false,
+      "frame": null
+    },
+    {
+      "id": "m005",
+      "message": "tg03",
+      "at": "2026-10-30T12:01:01.000-05:00",
+      "t": 61,
+      "action": "sent",
+      "kind": "chat_photo",
+      "event": "e02",
+      "members": [],
+      "text": "Desk arrival · e02",
+      "buttons": [],
+      "has_photo": true,
+      "frame": null
+    },
+    {
+      "id": "m006",
+      "message": "tg04",
+      "at": "2026-10-30T12:01:12.000-05:00",
+      "t": 72,
+      "action": "sent",
+      "kind": "proposal",
+      "event": null,
+      "members": [],
+      "text": "<b>Switch arming to Away?</b>\nOnly the ✅ Confirm button applies this change.",
+      "buttons": [
+        [
+          {
+            "label": "✅ Confirm",
+            "action": "confirm",
+            "proposal": "pr01"
+          },
+          {
+            "label": "✖️ Cancel",
+            "action": "cancel",
+            "proposal": "pr01"
+          }
+        ]
+      ],
+      "has_photo": false,
+      "frame": null
+    },
+    {
+      "id": "m007",
+      "message": "tg04",
+      "at": "2026-10-30T12:01:21.000-05:00",
+      "t": 81,
+      "action": "edited",
+      "kind": "proposal",
+      "event": null,
+      "members": [],
+      "text": "<b>Arming is now Away.</b>\nConfirmed by owner.",
+      "buttons": [],
+      "has_photo": false,
+      "frame": null
+    },
+    {
+      "id": "m008",
+      "message": "tg06",
+      "at": "2026-10-30T12:01:40.000-05:00",
+      "t": 100,
+      "action": "sent",
+      "kind": "digest",
+      "event": null,
+      "members": [],
+      "text": "<b>Your digest</b>\nThe desk-room arrivals and their recorded decisions are ready to review.\n<i>Simulated fixture; no measured results.</i>",
+      "buttons": [],
+      "has_photo": false,
+      "frame": null
+    },
+    {
+      "id": "m009",
+      "message": "tg07",
+      "at": "2026-10-30T12:01:42.000-05:00",
+      "t": 102,
+      "action": "sent",
+      "kind": "spot_check",
+      "event": "e02",
+      "members": [],
+      "text": "<b>Was it right to hold this back?</b>\nA trusted desk-arrival pattern matched.",
+      "buttons": [
+        [
+          {
+            "label": "✅ Expected",
+            "action": "ok",
+            "event": "e02"
+          },
+          {
+            "label": "🚨 Alert me",
+            "action": "real",
+            "event": "e02"
+          }
+        ],
+        [
+          {
+            "label": "❓ Why",
+            "action": "why",
+            "event": "e02"
+          },
+          {
+            "label": "▶️ Clip",
+            "link": true
+          }
+        ]
+      ],
+      "has_photo": true,
+      "frame": null
+    },
+    {
+      "id": "m010",
+      "message": "tg08",
+      "at": "2026-10-30T12:01:43.000-05:00",
+      "t": 103,
+      "action": "sent",
+      "kind": "spot_check",
+      "event": "e03",
+      "members": [],
+      "text": "<b>Was it right to hold this back?</b>\nFrigate recognized Resident A.",
+      "buttons": [
+        [
+          {
+            "label": "✅ Expected",
+            "action": "ok",
+            "event": "e03"
+          },
+          {
+            "label": "🚨 Alert me",
+            "action": "real",
+            "event": "e03"
+          }
+        ],
+        [
+          {
+            "label": "❓ Why",
+            "action": "why",
+            "event": "e03"
+          },
+          {
+            "label": "▶️ Clip",
+            "link": true
+          }
+        ]
+      ],
+      "has_photo": true,
+      "frame": null
+    },
+    {
+      "id": "m011",
+      "message": "tg05",
+      "at": "2026-10-30T12:01:56.000-05:00",
+      "t": 116,
+      "action": "sent",
+      "kind": "note_request",
+      "event": "e03",
+      "members": [],
+      "text": "What was wrong with the held-back arrival?",
+      "buttons": [],
+      "has_photo": false,
+      "frame": null
+    }
+  ],
+  "owner_actions": [
+    {
+      "id": "a001",
+      "at": "2026-10-30T12:00:20.000-05:00",
+      "t": 20,
+      "kind": "button",
+      "on_message": "tg01",
+      "action": "ok",
+      "event": "e01",
+      "outcome": {
+        "toast": "Thanks, noted as expected.",
+        "footer": "✅ Marked expected. The desk-arrival pattern was reinforced.",
+        "reply": null,
+        "done": null,
+        "spot_check": false,
+        "corrections": [
+          "c01"
+        ]
+      }
+    },
+    {
+      "id": "a002",
+      "at": "2026-10-30T12:01:20.000-05:00",
+      "t": 80,
+      "kind": "button",
+      "on_message": "tg04",
+      "action": "confirm",
+      "proposal": "pr01",
+      "event": null,
+      "outcome": {
+        "toast": "Arming is now Away.",
+        "footer": "✅ Applied by owner.",
+        "reply": null,
+        "done": true,
+        "spot_check": false,
+        "corrections": []
+      }
+    },
+    {
+      "id": "a003",
+      "at": "2026-10-30T12:01:38.000-05:00",
+      "t": 98,
+      "kind": "command",
+      "text": "/digest"
+    },
+    {
+      "id": "a004",
+      "at": "2026-10-30T12:01:50.000-05:00",
+      "t": 110,
+      "kind": "button",
+      "on_message": "tg07",
+      "action": "ok",
+      "event": "e02",
+      "outcome": {
+        "toast": "Thanks for checking.",
+        "footer": "✅ Right to hold back.",
+        "reply": null,
+        "done": null,
+        "spot_check": true,
+        "corrections": [
+          "c02"
+        ]
+      }
+    },
+    {
+      "id": "a005",
+      "at": "2026-10-30T12:01:55.000-05:00",
+      "t": 115,
+      "kind": "button",
+      "on_message": "tg08",
+      "action": "real",
+      "event": "e03",
+      "outcome": {
+        "toast": "Noted. Tell me what was wrong.",
+        "footer": "🚨 Owner wanted an alert.",
+        "reply": null,
+        "done": null,
+        "spot_check": true,
+        "corrections": [
+          "c03"
+        ]
+      }
+    },
+    {
+      "id": "a006",
+      "at": "2026-10-30T12:01:58.000-05:00",
+      "t": 118,
+      "kind": "note",
+      "text": "I wanted to know whenever that room was entered.",
+      "reply": "Thanks. Your note is attached to the correction.",
+      "replied_to": "tg05"
+    }
+  ],
+  "corrections": [
+    {
+      "id": "c01",
+      "event": "e01",
+      "at": "2026-10-30T12:00:20.000-05:00",
+      "t": 20,
+      "verdict": "benign",
+      "system_verdict": "suspicious",
+      "note": "Routine desk arrival.",
+      "via": "card",
+      "undone": null,
+      "effects": [
+        {
+          "pattern": "p01",
+          "effect": "reinforced"
+        }
+      ]
+    },
+    {
+      "id": "c02",
+      "event": "e02",
+      "at": "2026-10-30T12:01:50.000-05:00",
+      "t": 110,
+      "verdict": "benign",
+      "system_verdict": "benign",
+      "note": null,
+      "via": "spot_check",
+      "undone": null,
+      "effects": [
+        {
+          "pattern": "p01",
+          "effect": "agreed"
+        }
+      ]
+    },
+    {
+      "id": "c03",
+      "event": "e03",
+      "at": "2026-10-30T12:01:55.000-05:00",
+      "t": 115,
+      "verdict": "suspicious",
+      "system_verdict": "benign",
+      "note": "I wanted to know whenever that room was entered.",
+      "via": "spot_check",
+      "undone": null,
+      "effects": []
+    }
+  ],
+  "patterns": [
+    {
+      "id": "p01",
+      "kind": "false_alarm",
+      "camera": "illustrated_room",
+      "signature": "illustrated_room|person|nozone",
+      "description": "Routine desk arrival; earlier corrections preceded this window.",
+      "corrections": 3,
+      "agreements": 3,
+      "disagreements": 0,
+      "trust": 0.8,
+      "first_seen": {
+        "at": "2026-10-30T11:58:00.000-05:00",
+        "t": -120
+      },
+      "last_seen": {
+        "at": "2026-10-30T12:01:50.000-05:00",
+        "t": 110
+      },
+      "state": "at export"
+    }
+  ],
+  "conversations": [
+    {
+      "id": "owner",
+      "turns": [
+        {
+          "id": "q01",
+          "at": "2026-10-30T12:01:00.000-05:00",
+          "t": 60,
+          "question": "Why did you hold back the later desk arrival? Show me a photo.",
+          "answer": "The later desk arrival was held back by the trusted pattern. The house was Home. The photo is omitted from this fixture.",
+          "about": "e02",
+          "tools": [
+            {
+              "tool": "explain_decision",
+              "arguments": {
+                "event_id": "e02"
+              },
+              "ok": true,
+              "result": "{\"event\":\"e02\",\"stage\":\"gated\",\"pattern\":\"p01\"}"
+            },
+            {
+              "tool": "show_snapshot",
+              "arguments": {
+                "event_id": "e02"
+              },
+              "ok": true,
+              "result": "Photo omitted from this invented fixture."
+            }
+          ],
+          "photos": [
+            "e02"
+          ],
+          "proposals": [],
+          "seconds": null,
+          "prompt_tokens": null,
+          "guard": null,
+          "steps_recorded": true
+        },
+        {
+          "id": "q02",
+          "at": "2026-10-30T12:01:12.000-05:00",
+          "t": 72,
+          "question": "Switch to Away.",
+          "answer": "Review the proposal and use ✅ Confirm to apply it.",
+          "about": null,
+          "tools": [
+            {
+              "tool": "propose_arming",
+              "arguments": {
+                "state": "armed_away"
+              },
+              "ok": true,
+              "result": "{\"proposal\":\"pr01\",\"status\":\"pending\"}"
+            }
+          ],
+          "photos": [],
+          "proposals": [
+            "pr01"
+          ],
+          "seconds": null,
+          "prompt_tokens": null,
+          "guard": null,
+          "steps_recorded": true
+        }
+      ]
+    }
+  ],
+  "proposals": [
+    {
+      "id": "pr01",
+      "at": "2026-10-30T12:01:12.000-05:00",
+      "t": 72,
+      "kind": "arming",
+      "summary": "Switch arming to Away.",
+      "payload": {
+        "state": "armed_away",
+        "label": "Away"
+      },
+      "status": "applied",
+      "result": "Arming is now Away.",
+      "decided": {
+        "at": "2026-10-30T12:01:20.000-05:00",
+        "t": 80
+      }
+    }
+  ],
+  "watches": [],
+  "digests": [
+    {
+      "id": "g01",
+      "kind": "asked",
+      "covers": {
+        "start": "2026-10-30T12:00:00.000-05:00",
+        "end": "2026-10-30T12:01:38.000-05:00"
+      },
+      "at": "2026-10-30T12:01:40.000-05:00",
+      "t": 100,
+      "messages": [
+        "tg06",
+        "tg07",
+        "tg08"
+      ],
+      "spot_checks": [
+        "e02",
+        "e03"
+      ],
+      "sent": true
+    }
+  ],
+  "arming": [
+    {
+      "at": "2026-10-30T11:59:45.000-05:00",
+      "t": -15,
+      "state": "armed_home",
+      "source": "telegram"
+    },
+    {
+      "at": "2026-10-30T12:01:20.000-05:00",
+      "t": 80,
+      "state": "armed_away",
+      "source": "telegram"
+    }
+  ],
+  "metrics": {
+    "counts": {
+      "label": "simulated · invented fixture (not a measurement)",
+      "events": 3,
+      "sent_to_owner": 1,
+      "held_back": 2,
+      "alerted_while_muted": 0,
+      "held_back_by_reason": {
+        "trusted desk-arrival pattern": 1,
+        "recognized Resident A": 1
+      },
+      "final_stage": {
+        "gated": 1,
+        "face": 1,
+        "screened": 0,
+        "investigated": 1,
+        "summarized": 0,
+        "ingested": 0
+      },
+      "model_calls": {
+        "screenings": 1,
+        "investigations": 1,
+        "chat_answers": 2
+      },
+      "owner_answers": {
+        "benign": 2,
+        "suspicious": 1
+      },
+      "spot_checks": {
+        "answered": 2,
+        "right_to_hold_back": 1,
+        "accuracy": 0.5
+      }
+    },
+    "timings": {
+      "label": "simulated · fixture clock, not measured hardware performance",
+      "first_card_after_event_start_s": {
+        "n": 1,
+        "median": 1,
+        "max": 1
+      },
+      "investigation_s": {
+        "n": 1,
+        "median": 7,
+        "max": 7
+      }
+    }
+  }
+}

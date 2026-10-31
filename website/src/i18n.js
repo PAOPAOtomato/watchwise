@@ -46,6 +46,7 @@ export function applyLanguage(next = language, persist = false) {
   for (const { element, attribute, original } of attributeBindings) element.setAttribute(attribute, t(original));
   for (const { element, english, chinese } of docs) element.href = language === 'en' ? english : chinese;
   document.querySelector('#language').value = language;
+  document.querySelectorAll('[data-replay-link]').forEach((link) => { link.href = `/replay.html?lang=${language}`; });
   if (persist) {
     try { localStorage.setItem(storageKey, language); } catch { /* Still switch for this visit. */ }
     const url = new URL(location.href);

@@ -512,3 +512,6 @@
   :lang(zh-CN) h1 br { display: initial; }
   :lang(zh-CN) h2 { line-height: 1.4; }
 }
+
+.replay-entry { text-align: center; margin-top: 20px; font-size: 12px; }
+.replay-entry a { text-decoration: underline; text-underline-offset: 4px; }

@@ -1,0 +1,55 @@
+const zh = {
+  'Completion time not reported.': '未报告完成时间。',
+  'Skip to content': '跳转到内容', 'Back to the experience': '返回产品体验', 'Language': '语言',
+  'WATCHWISE / THE RECORD': 'WATCHWISE / 运行记录', 'One run. Every decision.': '一次运行，每个决策。',
+  'Follow the phone, inspect the evidence, and see what a correction taught.': '跟随手机消息，查看证据，了解一次纠正带来了什么。',
+  'A recording describes one run on one setup, not accuracy or performance elsewhere.': '记录仅反映一套配置的一次运行，不代表其他环境中的准确率或性能。',
+  'Loading the run…': '正在加载运行记录…', 'Trace text stays as recorded. Buttons replay recorded taps; they do not change an installation.': '记录中的文字保持原样。按钮回放已记录的点击，不会更改实际安装的系统。',
+  'Replay the window': '回放时间窗口', 'Replay position': '回放位置', 'Play': '播放', 'Pause': '暂停', 'Step': '下一步', 'Restart': '重新开始', 'Speed': '速度',
+  'Above 1× plays faster than recorded time.': '大于 1× 时加速回放。', 'The whole window': '完整时间窗口', 'All events and arming changes · final outcomes': '全部事件与布防变更 · 最终结果',
+  'On the owner’s phone': '主人的手机', 'Recorded messages': '已记录的消息', 'Message replay': '消息回放',
+  'THE REASON BEHIND THE CARD': '卡片背后的原因', 'Follow the evidence': '追溯证据', 'A CORRECTION CARRIED FORWARD': '纠正影响后续决策',
+  'You taught it. What happened next?': '你教会了它，后来怎样？', 'The digest & spot-checks': '摘要与抽查', 'Ask Watchwise': '询问 Watchwise',
+  'Figures from this trace': '本次记录的数据', 'Whole-window values · not live counters': '整个窗口的数据 · 非实时计数',
+  'Values and labels come directly from the trace. No rates are calculated here.': '数值和标签直接取自记录，本页面不计算新的比率。',
+  'Explore Watchwise': '探索 Watchwise', 'Watchwise — Replay a run': 'Watchwise — 回放一次运行',
+  'Follow a Watchwise run from phone cards to evidence, corrections, and the daily digest.': '从手机卡片追溯 Watchwise 一次运行的证据、纠正与每日摘要。',
+  'Invented fixture · no photos · simulated, not a measured run.': '虚构样例 · 无照片 · 模拟数据，并非实测运行。',
+  'One recorded run on one setup.': '一套配置的一次真实运行记录。', 'Simulated trace · not a measured run.': '模拟记录 · 非实测运行。',
+  'Unknown': '未知', 'Home': '在家', 'Away': '外出', 'Night': '夜间', 'Off': '关闭', 'Arming': '布防',
+  'Alerted': '已提醒', 'Owner review': '请主人判断', 'Held back': '已拦截', 'Suppressed': '已抑制', 'Not decided': '尚未决策',
+  'Rule / memory gate': '规则 / 记忆门控', 'Face recognition': '人脸识别', 'First look': '初步判断', 'Investigation': '调查', 'Whole-event review': '完整事件复核', 'Ingested': '已接收',
+  'No messages at this point.': '此时尚无消息。', 'Illustration · no exported photo': '插画 · 无导出照片', 'Illustrated camera scene': '摄像头场景插画',
+  'Exported event frame · people pixelated': '导出的事件画面 · 人员已像素化', 'Pixelated event frame': '人员已像素化的事件画面', 'Frame unavailable': '画面不可用',
+  'Evidence': '证据', 'Recorded tap': '已记录的点击', 'No tap recorded': '未记录点击', 'Recording link omitted from trace': '记录中未包含录像链接',
+  'Owner': '主人', 'Edited': '已编辑', 'Reply': '回复', 'Select an event or a card to inspect its decisions.': '选择事件或卡片，查看其决策。',
+  'No decision yet.': '尚无决策。', 'Decision history': '决策历史', 'Only the latest decision was recorded.': '仅记录了最后一次决策。',
+  'Reason': '原因', 'Rationale': '推理说明', 'Summary': '摘要', 'Model’s first look': '模型的初步判断', 'Verdict': '判断', 'Model': '模型',
+  'Investigation still in progress at this point.': '此时调查仍在进行。', 'Conclusion': '结论', 'Tool steps': '工具步骤', 'Arguments': '参数', 'Result': '结果', 'Error': '错误',
+  'Observations': '观察', 'Inferences': '推断', 'Unknowns': '待确认事项', 'Not reported': '未报告', 'Event frame': '事件画面',
+  'The exported frame belongs to this event; it may differ from the moment shown on the phone.': '导出画面属于此事件，其时刻可能与手机所示画面不同。',
+  'No correction yet.': '尚无纠正。', 'Expected': '符合预期', 'Suspicious': '可疑', 'Pattern at export': '导出时的模式', 'Pattern': '模式',
+  'reinforced': '已强化', 'agreed': '判断一致', 'disagreed': '判断不一致', 'Undone': '已撤销',
+  'This correction has no active effects in the export.': '导出记录中，此纠正没有生效的影响。', 'No later matching decision at this point.': '此时尚无后续匹配决策。',
+  'You taught it → memory held this event back.': '你教会了它 → 记忆拦截了此事件。', 'The pattern informed this decision.': '此模式为决策提供了参考。',
+  'No digest yet.': '尚无摘要。', 'Scheduled digest': '定时摘要', 'Requested digest': '按需摘要', 'No message sent.': '未发送消息。', 'Open phone message': '查看手机消息',
+  'Spot-check': '抽查', 'Awaiting recorded answer': '等待记录中的回答', 'No chat yet.': '尚无聊天。', 'Question': '提问', 'Answer': '回答',
+  'Tool steps were not recorded.': '未记录工具步骤。', 'Proposal': '提议', 'Pending': '待确认', 'Applied': '已执行', 'Cancelled': '已取消', 'Expired': '已过期', 'Failed': '失败',
+  'Outcome at export': '导出时的结果', 'Only the recorded Confirm tap applies a proposal.': '仅记录中的 Confirm 点击会执行提议。',
+  'Watch': '盯防', 'Watch state at export': '导出时的盯防状态', 'Matched event': '匹配的事件', 'Safety guard': '安全规则',
+  'No metrics reported.': '未报告统计数据。', 'Counts': '计数', 'Timings': '耗时', 'Events': '事件', 'Sent to owner': '已发送给主人', 'Alerted while muted': '静音期间发出的提醒',
+  'Held back by reason': '按原因分类的拦截', 'Final decision stage': '最终决策阶段', 'Model calls': '模型调用', 'Owner answers': '主人回答', 'Spot-check answers': '抽查回答',
+  'Screenings': '初步判断', 'Investigations': '调查', 'Chat answers': '聊天回答', 'Answered': '已回答', 'Right to hold back': '拦截正确', 'Accuracy (as recorded)': '准确率（记录值）',
+  'Event start to first card (s)': '事件开始至首张卡片（秒）', 'First look (ms)': '初步判断（毫秒）', 'Investigation (s)': '调查（秒）', 'Chat answer (s)': '聊天回答（秒）',
+  'Samples': '样本数', 'Median': '中位数', 'Maximum': '最大值', 'Label not provided': '未提供标签',
+  'Unable to load this trace. Check its format, version, privacy setting, and data files.': '无法加载此记录。请检查格式、版本、隐私设置及数据文件。',
+  'Try again': '重试', 'No investigation attached to this decision.': '此决策没有关联调查。', 'Recorded actions': '已记录的操作',
+};
+export let language = 'en';
+export function setLanguage(value) { language = value === 'zh-CN' ? 'zh-CN' : 'en'; }
+export function initialLanguage() {
+  const requested = new URL(location.href).searchParams.get('lang');
+  let saved; try { saved = localStorage.getItem('watchwise.language'); } catch { /* Optional. */ }
+  return ['en', 'zh-CN'].includes(requested) ? requested : saved === 'zh-CN' ? saved : 'en';
+}
+export const t = (english) => language === 'zh-CN' ? zh[english] ?? english : english;

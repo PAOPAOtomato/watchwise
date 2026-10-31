@@ -3,3 +3,9 @@ dist/
 .vercel/
 test-results/
 playwright-report/
+
+# The root ignores runtime data. Track only the invented, photo-free replay fixture.
+!public/data/
+public/data/*
+!public/data/replay-fixture/
+!public/data/replay-fixture/trace.json

@@ -1,5 +1,7 @@
 // English text is the lookup key; commands, model IDs, and product names stay intact.
 export const messages = {
+  'Replay a run': '回放一次运行',
+  'Follow a run, from phone cards to evidence →': '回放一次运行，从手机卡片追溯证据 →',
   'Language': '语言',
   'View on': '查看',
   'Watchwise — An AI guard for the cameras you already have': 'Watchwise — 为现有摄像头配备 AI 守卫',
