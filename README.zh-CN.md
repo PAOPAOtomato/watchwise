@@ -145,6 +145,7 @@ Ollama 在系统中原生运行。Frigate 模板设置了 `detect.enabled: true`
 |---|---|
 | `/setup` | 描述摄像头、房间、住户、总要提醒的规则和默认布防状态 |
 | `/arm` | 查看或切换布防：Home、Away、Night、Off（也可用 `/arm away`） |
+| `/digest` | 发送自上次摘要以来的活动摘要，并附上供抽查的已拦下事件 |
 | `/face` | 列出共用人脸库中各住户的照片数量、少于 5 张时的提示，以及库中的其他名字 |
 | `/face <name> [camera]` | 在 Telegram 中预览摄像头当前画面；点击 ✅ Add 后，将照片写入所有摄像头共用的 Frigate 人脸库 |
 | `/new` | 与 Ask Watchwise 开始新的对话 |
@@ -185,6 +186,30 @@ Telegram 会中转卡片文字、已配置的 Clip URL 和快照（将
 回答和你在 `/setup` 中输入的内容。长轮询无需公开入站端点。默认只有 `alerted` 和
 `escalated_human` 决策会创建卡片；在分析期间已经发送的卡片，之后可以更新为降级
 结果。
+
+### 每日摘要与抽查
+
+关联 Telegram 并运行 `watchwise serve` 后，每日摘要默认启用。它会在
+**Watchwise 所在主机的本地时间 08:00** 静默发送自上次摘要以来的活动概况：
+哪些事件提醒了你、哪些被拦下，以及原因。摘要还会从符合条件的已拦下事件中，
+附上**最多 2 张抽查卡片**，每种拦截原因至多一张，供你使用通常的 Expected 或
+Alert me 按钮回答。摘要直接统计已保存的记录，不调用模型。没有内容可报告时，
+定时摘要会跳过；即使关闭定时发送，仍可用 `/digest` 按需获取摘要。
+
+在 `config/watchwise.yml` 中配置：
+
+```yaml
+notify:
+  digest:
+    enabled: true
+    at: "08:00"
+    spot_checks: 2
+    silent: true
+```
+
+`notify.digest.silent: true` 请求以无声音、无振动的方式送达。摘要文字、抽查卡片
+及其照片会经过 Telegram；照片发送遵循 `notify.telegram.send_images`。
+手动编辑该配置后，请重启服务。
 
 ### 所有摄像头共用的人脸库
 
@@ -367,6 +392,37 @@ POST 判定，例如用于接入 Home Assistant。
 `watchwise-mcp` 提供给 Claude Desktop、Claude Code、Cursor 或其他 MCP 客户端；
 后者需要 `pip install -e ".[mcp]"`。Telegram 中的 Ask Watchwise 使用自己的
 工具集；它没有 HTTP 端点。
+
+## 导出一次运行记录
+
+`watchwise export` 将一次运行写入 `trace.json` 和 `frames/`，包括事件、决策历史、
+手机消息及其编辑、用户操作、学习关联、对话和摘要。它读取 Watchwise 的数据库，
+导出照片时还会向配置的 Frigate API 请求画面。导出文件写入本地文件夹；该命令
+不会上传内容。
+
+```bash
+watchwise export --config config/watchwise.yml --since=-1h \
+  --out ../watchwise-export --machine "Describe your machine"
+```
+
+请将 `--machine` 的描述替换为实际运行 Watchwise 的设备信息；它会用于标注导出
+记录中的耗时测量。`--until` 可指定时间窗口的结束时间，默认截至当前。默认的
+`--frames blurred` 使用 Frigate 的人员和人脸框，对人员区域进行像素化处理；
+缺少合适检测框，或多人画面无法确保全部人员都被遮挡时，会省略该帧。
+`--names replaced` 将已知姓名替换为 `Resident A`、`Visitor A` 等别名；
+`cleaner` 等角色名称会保留。可用 `--frames none` 导出纯文字记录，用
+`--alias NAME=ALIAS` 补充需要替换的姓名。`--frames none` 也会跳过 Frigate
+连接，因此无法从人脸库中发现更多姓名；请用 `--alias` 补充这些姓名。
+
+**发布前，请检查 `trace.json` 和每一张导出的图片。** 用户输入的文字除姓名替换
+外会原样保留，照片仍可能暴露房间或其他私人细节。`--frames full` 仅供私下使用。
+发布文件夹后，访客便能访问其中的文字和照片。字段和隐私处理细节见
+[运行记录格式](docs/trace-format.md)。
+
+`memory.trace_days` 控制导出所用的详细决策、手机消息、用户操作和布防日志的
+保留时间。默认保留 **14 天**；`memory.trace_days: 0` 表示无限期保留这些日志。
+清理最多每天运行一次。该设置不会删除已学习模式、事件的最新记录、聊天历史或
+Frigate 录像。需要完整决策顺序和卡片编辑过程时，请在日志保留期内导出。
 
 ## 运行检查
 

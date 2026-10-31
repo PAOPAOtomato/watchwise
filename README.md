@@ -161,6 +161,7 @@ recognized you.
 |---|---|
 | `/setup` | describe your cameras, rooms, residents, always-alert rules, and arming default |
 | `/arm` | show or switch arming: Home, Away, Night, Off (also `/arm away`) |
+| `/digest` | send a digest of activity since the previous digest, with held-back events to spot-check |
 | `/face` | list residents' photo counts in the shared Face Library, hints below 5 photos, and other names in the library |
 | `/face <name> [camera]` | preview the camera's current frame in Telegram; ✅ Add writes a photo to Frigate's Face Library for all cameras |
 | `/new` | start a new conversation with Ask Watchwise |
@@ -205,6 +206,33 @@ Telegram relays card text, the Clip URL when configured, and snapshots unless
 and what you type in `/setup`. Long polling needs no incoming public endpoint. By
 default, only `alerted` and `escalated_human` decisions start cards; a card
 already sent while analyzing can later update to a downgraded result.
+
+### Daily digest and spot-checks
+
+Once Telegram is linked and `watchwise serve` is running, the daily digest is
+enabled by default. At **08:00 in the Watchwise host's local time**, it silently
+sends a summary of activity since the previous digest: what reached you, what
+was held back, and why. It adds **up to 2 spot-check cards** from eligible
+held-back events, at most one per reason, so you can answer with the usual
+Expected or Alert me buttons. The digest counts stored records without calling
+a model. Scheduled digests with nothing to report are skipped; `/digest` sends
+one on demand even when the schedule is disabled.
+
+Configure it in `config/watchwise.yml`:
+
+```yaml
+notify:
+  digest:
+    enabled: true
+    at: "08:00"
+    spot_checks: 2
+    silent: true
+```
+
+`notify.digest.silent: true` requests delivery without sound or vibration.
+Digest text, spot-check cards, and their photos pass through Telegram; photos
+follow `notify.telegram.send_images`. Restart the service after editing this
+configuration by hand.
 
 ### Faces across your cameras
 
@@ -414,6 +442,43 @@ Forensic tools are also exposed through **MCP**: in-process to the agent and as
 a stdio server (`watchwise-mcp`, requiring `pip install -e ".[mcp]"`) for Claude
 Desktop, Claude Code, Cursor, or another MCP client. Ask Watchwise in Telegram
 uses its own tool set; it has no HTTP endpoint.
+
+## Export a recorded run
+
+`watchwise export` writes a run to `trace.json` and `frames/`, including events,
+decision history, phone messages and edits, owner actions, learning links,
+conversations, and digests. It reads Watchwise's database and, when exporting
+photos, requests frames from the configured Frigate API. The export is written
+to a local folder; the command does not upload it.
+
+```bash
+watchwise export --config config/watchwise.yml --since=-1h \
+  --out ../watchwise-export --machine "Describe your machine"
+```
+
+Replace the `--machine` description with the setup that ran Watchwise; it labels
+the exported timing measurements. `--until` can set the end of the window;
+otherwise it ends now. By default, `--frames blurred` pixelates people using
+Frigate's person and face boxes, and omits frames when suitable boxes are
+missing or multiple people cannot all be covered safely. `--names replaced`
+replaces known names with aliases such as `Resident A` and `Visitor A`; roles
+such as `cleaner` remain. Use `--frames none` for a text-only export and
+`--alias NAME=ALIAS` for additional names. `--frames none` also skips the
+Frigate connection, so it cannot discover additional names from the Face
+Library; use `--alias` for any extra names.
+
+**Review `trace.json` and every exported frame before publishing.** Typed text
+is retained apart from name replacements, and photos can still reveal rooms or
+other private details. `--frames full` is for private use only. Publishing the
+folder makes its text and photos available to visitors. See the
+[trace format](docs/trace-format.md) for fields and privacy details.
+
+`memory.trace_days` controls retention of the detailed decision, phone-message,
+owner-action, and arming logs used by export. The default is **14 days**;
+`memory.trace_days: 0` keeps those logs indefinitely. Pruning runs at most once
+a day. This setting does not delete learned patterns, the latest event records,
+chat history, or Frigate recordings. Export within the retained window when you
+need the full sequence of decisions and card edits.
 
 ## Run the checks
 

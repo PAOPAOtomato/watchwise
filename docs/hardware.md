@@ -207,6 +207,62 @@ In `config/watchwise.yml`:
   provisional "Analyzing…" cards can reach you first; warm-up and asynchronous
   investigation do not guarantee a quick final verdict.
 
+## Daily digest and trace storage
+
+With Telegram linked and `watchwise serve` running, `notify.digest` is enabled
+by default. It sends silently at **08:00 in the Watchwise host's local time**,
+with up to **2 spot-check cards** from eligible held-back events, at most one
+per reason. The counts come from the database, without a model call. Answer
+spot-check cards with the usual Expected or Alert me buttons. `/digest` sends
+one immediately, including when the schedule is disabled; scheduled digests
+with nothing to report are skipped.
+
+```yaml
+notify:
+  digest:
+    enabled: true
+    at: "08:00"
+    spot_checks: 2
+    silent: true
+memory:
+  trace_days: 14
+```
+
+`notify.digest.silent` requests no sound or vibration. Digest text, spot-check
+cards, and enabled photos pass through Telegram; `notify.telegram.send_images`
+controls photo sending. Restart the service after manual configuration edits.
+
+`memory.trace_days` keeps the detailed decision, phone-message, owner-action,
+and arming logs for 14 days by default; `0` keeps them indefinitely. Pruning
+runs at most once a day. This is disk retention for the replay trace, not model
+context or video retention: it does not delete learned patterns, latest event
+records, chat history, or Frigate recordings. Export within the retained window
+to keep a complete sequence of decisions and card edits.
+
+`watchwise export` reads Watchwise's database, requests photos from the
+configured Frigate API when enabled, and writes `trace.json` plus `frames/` to
+a local directory without uploading it:
+
+```bash
+watchwise export --config config/watchwise.yml --since=-1h \
+  --out ../watchwise-export --machine "Describe your machine"
+```
+
+Use the actual machine description for `--machine`; it labels the timing
+measurements. The defaults, `--frames blurred` and `--names replaced`, pixelate
+people using Frigate's person and face boxes and replace known names with
+aliases such as `Resident A` and `Visitor A`. Frames without suitable boxes or
+with multiple people who cannot all be covered safely are omitted. Use
+`--frames none` to omit photos, and `--alias NAME=ALIAS` to add a name mapping.
+`--frames none` also skips the Frigate connection, so it cannot discover
+additional names from the Face Library; use `--alias` for any extra names.
+
+**Review `trace.json` and every frame before publishing.** Typed text is kept
+apart from name replacements, and room details remain visible. `--frames full`
+is for private use only. Publishing the directory makes its contents public.
+See the [trace format](trace-format.md) and
+[export instructions](../README.md#export-a-recorded-run).
+
 ## More cameras and phones
 
 Frigate decodes every camera's stream on its own machine, so the number of
