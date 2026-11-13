@@ -31,7 +31,10 @@ async def _cross_reference_cameras(ctx: ToolContext, args: dict[str, Any]) -> di
     labels = args.get("labels") or None
     requested = args.get("cameras") or None
 
-    cameras = requested or await ctx.camera_names()
+    known = await ctx.camera_names()
+    # Small models invent camera names; search the real ones instead.
+    unknown = [c for c in requested or [] if known and c not in known]
+    cameras = [c for c in requested or [] if c not in unknown] or known
     if exclude:
         cameras = [c for c in cameras if c != exclude]
     # The service's camera settings (which room each camera watches).
@@ -81,7 +84,7 @@ async def _cross_reference_cameras(ctx: ToolContext, args: dict[str, Any]) -> di
         if item["same_room"]:
             same_room_activity[str(item["camera"])] = same_room_activity.get(str(item["camera"]), 0) + 1
 
-    return {
+    result = {
         "window": {"after": after, "before": before, "anchor": start},
         "cameras_searched": cameras,
         "event_count": len(elsewhere),
@@ -90,6 +93,13 @@ async def _cross_reference_cameras(ctx: ToolContext, args: dict[str, Any]) -> di
         "timeline": timeline[:50],
         "interpretation": _interpret(elsewhere, by_camera, exclude) + _same_room_note(same_room_activity, exclude),
     }
+    if unknown:
+        result["unknown_cameras"] = unknown
+        result["interpretation"] = (
+            f"There is no camera named {', '.join(unknown)} here; the cameras are {', '.join(known)}. "
+            + result["interpretation"]
+        )
+    return result
 
 
 def _same_room_note(activity: dict[str, int], camera: str | None) -> str:

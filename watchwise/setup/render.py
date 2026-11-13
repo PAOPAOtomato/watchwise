@@ -21,7 +21,9 @@ HEADER = """\
 # Safe to edit by hand: re-running `watchwise init` shows a diff and backs up
 # this file before changing it. ${{VAR:-default}} values are read from the
 # environment (.env), so the same file works on the host and in docker.
-# Privacy: with this profile, {leaves} leaves this machine.
+# Privacy: with this profile, {leaves} leaves this machine. Local models get
+# frames and text at their base_url: if OLLAMA_URL names another machine, that
+# machine receives them.
 """
 
 SECTION_COMMENTS = {

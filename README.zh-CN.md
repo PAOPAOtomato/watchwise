@@ -120,9 +120,14 @@ docker compose up -d
 ```
 
 `deploy/.env` 选择相应硬件的叠加配置文件（`docker-compose.nvidia.yml`、`.amd.yml`、
-`.apple.yml` 等）。请在该叠加配置实际使用的模型服务上拉取所选模型；macOS 上的
-Ollama 在系统中原生运行。Frigate 模板设置了 `detect.enabled: true`；请在自己的
-配置中检查该设置。启动前请替换视频流占位符。
+`.apple.yml` 等）。请在该叠加配置实际使用的模型服务上拉取所选模型（`init` 会打印
+相应命令）；macOS 上的 Ollama 在系统中原生运行。Frigate 模板设置了
+`detect.enabled: true`；请在自己的配置中检查该设置。启动前请替换视频流占位符。
+
+`deploy/.env` 还会把 `TZ` 设为本机时区；卡片时间、每日摘要和值班表规则都使用它。
+如需使用另一台机器上的模型服务，请在 `deploy/.env` 中设置 `OLLAMA_URL`，并从
+`COMPOSE_FILE` 中移除 `docker-compose.ollama.yml`（以及 GPU 叠加配置）；之后画面和
+文本会发送到那台服务器。
 
 ### 手机告警（Telegram）
 

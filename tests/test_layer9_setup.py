@@ -304,6 +304,25 @@ def test_cli_profiles_lists_the_catalog(capsys):
     assert "cpu-hybrid" in out and "leaves this machine" in out
 
 
+def test_a_model_server_on_another_machine_is_named_as_leaving_it(
+    catalog, fixed_machine, tmp_path, monkeypatch, capsys
+):
+    gpu = catalog.profiles["nvidia-16gb"]
+    for here in ({}, {"OLLAMA_URL": "http://127.0.0.1:11434"}, {"OLLAMA_URL": "http://ollama:11434"}):
+        assert gpu.leaves(env=here) == "nothing"
+    away = {"OLLAMA_URL": "http://gpu-box:11434/"}
+    assert gpu.leaves(env=away) == "frames and text to the model server at http://gpu-box:11434"
+    assert catalog.profiles["cpu-hybrid"].leaves(env=away) == (
+        "text to your cloud provider (no images); frames and text to the model server at http://gpu-box:11434"
+    )
+
+    monkeypatch.setenv("OLLAMA_URL", "http://gpu-box:11434")
+    assert cli.main(["init", "--profile", "nvidia-16gb", "--root", str(tmp_path), "--dry-run"]) == 0
+    assert "what leaves this machine with this profile: frames and text to the model server at http://gpu-box:11434" in (
+        capsys.readouterr().out
+    )
+
+
 def test_cli_doctor_json(fixed_machine, capsys):
     assert cli.main(["doctor", "--json", "--no-probe"]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -341,10 +360,16 @@ def test_cli_init_explains_a_missing_cloud_key(fixed_machine, tmp_path, capsys):
     assert "needs a cloud API key" in capsys.readouterr().err
 
 
-def test_cli_init_deploy_selects_compose_files(fixed_machine, tmp_path):
+def test_cli_init_deploy_selects_compose_files(fixed_machine, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("TZ", "Europe/Berlin")
     assert cli.main(["init", "--profile", "cpu-local", "--root", str(tmp_path), "--deploy", "--yes"]) == 0
     env = (tmp_path / "deploy" / ".env").read_text()
     assert "COMPOSE_FILE=docker-compose.yml:docker-compose.ollama.yml" in env
+    assert "\nTZ=Europe/Berlin\n" in env  # the containers would otherwise run on UTC
+    steps = capsys.readouterr().out.split("Next steps:")[1]
+    assert "cd deploy && docker compose up -d" in steps
+    assert "docker compose exec ollama ollama pull qwen3-vl:4b" in steps
+    assert "watchwise serve" not in steps
 
 
 def test_cli_check_with_stub_models(tmp_path, capsys):
@@ -492,6 +517,8 @@ def test_compose_files_parse_and_wire_the_services():
     assert {"mqtt", "frigate", "watchwise"} <= set(base["services"])
     watchwise = base["services"]["watchwise"]
     assert watchwise["environment"]["FRIGATE_URL"] == "http://frigate:5000"
+    for service in ("watchwise", "frigate"):
+        assert base["services"][service]["environment"]["TZ"] == "${TZ:-UTC}"
     for overlay in sorted((REPO / "deploy").glob("docker-compose.*.yml")):
         data = yaml.safe_load(overlay.read_text())
         assert "services" in data, overlay.name

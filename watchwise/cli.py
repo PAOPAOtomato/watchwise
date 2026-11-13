@@ -138,7 +138,7 @@ def format_doctor(report: Any, rec: Any, catalog: Any) -> str:
             w(f"  {role:<13}-> {spec.get('provider')} {spec.get('model')}\n")
     except ValueError as exc:
         w(f"  ({exc})\n")
-    w(f"  leaves this machine: {profile.leaves_machine}\n")
+    w(f"  leaves this machine: {profile.leaves()}\n")
     for note in profile.notes:
         w(f"  note: {note}\n")
     others = ", ".join(rec.alternatives)
@@ -195,6 +195,8 @@ def cmd_profiles(args: argparse.Namespace) -> int:
 
 
 def compose_env(profile: Any) -> str:
+    from watchwise.timeutil import local_zone_name
+
     files = ["docker-compose.yml", *[f"docker-compose.{c}.yml" for c in profile.compose]]
     return (
         "# Written by `watchwise init --deploy`. Selects the compose files for this machine.\n"
@@ -202,6 +204,9 @@ def compose_env(profile: Any) -> str:
         "COMPOSE_PROJECT_NAME=watchwise\n"
         "COMPOSE_PATH_SEPARATOR=:\n"
         f"COMPOSE_FILE={':'.join(files)}\n"
+        "# Your time zone (an IANA name such as Europe/Berlin): card times, the daily\n"
+        "# digest and duty-roster rules use it inside the containers.\n"
+        f"TZ={local_zone_name()}\n"
     )
 
 
@@ -296,7 +301,7 @@ def cmd_init(args: argparse.Namespace) -> int:
                 )
             )
 
-    print(f"\nPrivacy: with this profile, {profile.leaves_machine} leaves this machine.\n")
+    print(f"\nPrivacy: what leaves this machine with this profile: {profile.leaves()}.\n")
     print("Plan:")
     for change in changes:
         print(f"  {change.action:<9} {change.path}  ({change.reason})")
@@ -320,6 +325,19 @@ def cmd_init(args: argparse.Namespace) -> int:
     pulls = sorted({m["model"] for m in models.values() if m.get("provider") == "ollama"})
     print("\nNext steps:")
     step = 1
+    if args.deploy:
+        pull = "docker compose exec ollama ollama pull" if "ollama" in profile.compose else "ollama pull"
+        print(f"  {step}. Add your cameras to deploy/frigate/config.yml")
+        print(f"  {step + 1}. cd deploy && docker compose up -d")
+        step += 2
+        if pulls:
+            print(f"  {step}. Pull the local model(s), from deploy/: " + " && ".join(f"{pull} {m}" for m in pulls))
+            step += 1
+        if cloud is not None and not os.environ.get(cloud.env):
+            print(f"  {step}. Put your key in .env: {cloud.env}=..., then: docker compose up -d")
+            step += 1
+        print(f"  {step}. watchwise check      # from the repository root: talk to each model once")
+        return 0
     if pulls:
         print(f"  {step}. Pull the local model(s): " + " && ".join(f"ollama pull {m}" for m in pulls))
         step += 1

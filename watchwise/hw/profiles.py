@@ -8,12 +8,16 @@ needs one, and resolve the ``"@cloud"`` placeholders into named endpoints.
 from __future__ import annotations
 
 import copy
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from importlib import resources
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
+from watchwise.config import interpolate_env
 from watchwise.hw.detect import HardwareReport
 
 CLOUD = "@cloud"
@@ -61,6 +65,34 @@ class Profile:
     @property
     def needs_cloud(self) -> bool:
         return CLOUD in self.roles.values()
+
+    def remote_model_servers(self, env: Mapping[str, str] | None = None) -> list[str]:
+        """The profile's own model servers that are on another machine.
+
+        Base URLs are read with ``env`` (default: this process's environment),
+        so ``OLLAMA_URL`` pointing at a GPU box counts. The compose ``ollama``
+        container runs beside Watchwise and counts as this machine.
+        """
+        source = dict(os.environ if env is None else env)
+        servers: list[str] = []
+        for name in sorted({target for target in self.roles.values() if target != CLOUD}):
+            url = interpolate_env(str(self.models.get(name, {}).get("base_url") or ""), source).rstrip("/")
+            host = (urlsplit(url).hostname or "").lower()
+            if host and host not in _LOCAL_HOSTS and not host.startswith("127.") and url not in servers:
+                servers.append(url)
+        return servers
+
+    def leaves(self, env: Mapping[str, str] | None = None) -> str:
+        """What leaves this machine: the catalog's statement plus any remote
+        model server the local-model roles would send frames and text to."""
+        remote = [f"frames and text to the model server at {url}" for url in self.remote_model_servers(env)]
+        if not remote:
+            return self.leaves_machine
+        return "; ".join(remote if self.leaves_machine == "nothing" else [self.leaves_machine, *remote])
+
+
+# This machine, or a container beside it (the compose `ollama` service).
+_LOCAL_HOSTS = {"localhost", "0.0.0.0", "::1", "ollama", "host.docker.internal"}
 
 
 @dataclass

@@ -245,6 +245,19 @@ async def test_cross_reference_excludes_the_alerting_camera(tool_ctx, nvr_state)
     assert result["event_count"] == 0
 
 
+async def test_cross_reference_ignores_cameras_that_do_not_exist(tool_ctx, nvr_state):
+    t0 = time.time()
+    nvr_state.add_event(event_id="e1", camera="cam_yard", start_time=t0 + 30)
+    result = await CROSS_TOOL.run(
+        tool_ctx,
+        {"start_time": t0, "exclude_camera": "cam_drive", "cameras": ["side_gate", "lobby"]},
+    )
+    assert result["unknown_cameras"] == ["side_gate", "lobby"]
+    assert "side_gate" not in result["cameras_searched"] and "cam_yard" in result["cameras_searched"]
+    assert result["event_count"] == 1
+    assert result["interpretation"].startswith("There is no camera named side_gate, lobby here")
+
+
 # ---------------- category 4: duty roster ----------------
 
 

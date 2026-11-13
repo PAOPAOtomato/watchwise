@@ -24,6 +24,8 @@ services:
     shm_size: "512mb"
     depends_on:
       - mqtt
+    environment:
+      TZ: ${TZ:-UTC}
     volumes:
       - ./frigate:/config
       - ${FRIGATE_MEDIA:-./media}:/media/frigate
@@ -54,6 +56,7 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       WATCHWISE_CONFIG: /app/config/watchwise.yml
       WATCHWISE_DB_PATH: /data/watchwise.db
+      TZ: ${TZ:-UTC}  # card times, the daily digest and roster rules
     volumes:
       - ../config:/app/config:ro
       - watchwise-data:/data

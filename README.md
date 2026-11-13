@@ -134,9 +134,14 @@ docker compose up -d
 
 `deploy/.env` selects the hardware overlays (`docker-compose.nvidia.yml`,
 `.amd.yml`, `.apple.yml`, and others). Pull the selected models on the model
-server used by that overlay; on macOS, Ollama runs natively. The Frigate template
-sets `detect.enabled: true`; check this setting in your own configuration.
-Replace stream placeholders before starting.
+server used by that overlay (`init` prints the command); on macOS, Ollama runs
+natively. The Frigate template sets `detect.enabled: true`; check this setting
+in your own configuration. Replace stream placeholders before starting.
+
+`deploy/.env` also sets `TZ` to this machine's time zone; card times, the daily
+digest and duty-roster rules use it. To use a model server on another machine,
+set `OLLAMA_URL` in `deploy/.env` and remove `docker-compose.ollama.yml` (and the
+GPU overlay) from `COMPOSE_FILE`; that server then receives the frames and text.
 
 ### Phone alerts (Telegram)
 
