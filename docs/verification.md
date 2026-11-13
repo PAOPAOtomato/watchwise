@@ -95,3 +95,23 @@ previews an event's saved face crop through Telegram when image sending is
 enabled; only ✅ Add calls Frigate's training API to move the crop into the
 resident's shared Face Library folder. These code and automated checks are
 separate from the phone observations above.
+
+## November 13, 2026: install paths (`57f5d58`)
+
+Both runs started from a fresh clone of the public repository on the Ubuntu CPU
+VM; Ollama 0.40.8 served `qwen3-vl:8b-instruct` from the L4 GPU VM in another
+cloud region (about 32 ms round trip). No camera was used: Frigate replayed a
+150-second clip of a building entrance from the public
+[MEVA dataset](https://mevadata.org) (CC BY 4.0), looped as a camera, in which
+people walk in. No phone was connected; decisions were read from the logs.
+
+| Capability | Evidence and scope |
+|---|---|
+| Clean install | `git clone`, a new virtual environment and `pip install -e ".[anthropic]"` (16 s), then `watchwise demo` (simulated: 38 → 6 human reviews), `doctor`, `init --profile nvidia-16gb`, `check` (all three roles answered after a 39 s first model load) and `serve` against a running Frigate and MQTT (`/health` ok). The model was already on the server, so download time was not measured. |
+| Docker Compose | `init --deploy`, a camera added to `deploy/frigate/config.yml`, then `docker compose up -d --build`: the image built, every container became healthy, and Watchwise reached the model server on the other machine. A person in the clip produced an “Analyzing…” decision 0.5 s after Frigate's report, a screened decision 2.4 s later, an investigation, and a whole-event summary when the event ended. The Ollama and GPU overlays were left out because the model server was another machine. |
+
+The runs found three problems, fixed in 0.2.0: the containers ran on UTC (so
+card times, the digest and roster rules did too; `init --deploy` now writes
+`TZ`), `doctor` and `init` said nothing left the machine when `OLLAMA_URL`
+named another one, and the investigator could ask about cameras that don't
+exist.
