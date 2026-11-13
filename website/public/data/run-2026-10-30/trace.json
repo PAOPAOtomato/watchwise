@@ -1,0 +1,2688 @@
+{
+ "format": "watchwise-trace",
+ "version": "1.0",
+ "meta": {
+  "title": "One afternoon at home, recorded live",
+  "source": "recorded",
+  "generated_at": "2026-10-30T12:43:16-05:00",
+  "generator": {
+   "name": "watchwise",
+   "version": "0.2.0",
+   "commit": "d98d667-dirty"
+  },
+  "window": {
+   "start": "2026-10-30T12:10:00.000-05:00",
+   "end": "2026-10-30T12:40:08.000-05:00",
+   "seconds": 1808.0
+  },
+  "timezone": "America/Chicago",
+  "utc_offset_minutes": -300,
+  "models": {
+   "screener": "ollama/qwen3-vl:8b-instruct",
+   "investigator": "ollama/qwen3-vl:8b-instruct",
+   "chat": "ollama/qwen3-vl:8b-instruct"
+  },
+  "machine": "GCP g2-standard-4, NVIDIA L4",
+  "privacy": {
+   "frames": "blurred",
+   "names": "replaced",
+   "people_in_frames": "pixelated over Frigate's box for each person, grown by 25% on every side",
+   "identities": "chat ids and usernames are 'owner'; links are '[link]'"
+  }
+ },
+ "cameras": [
+  {
+   "id": "webcam",
+   "room": "bedroom",
+   "notes": "My bedroom workspace."
+  },
+  {
+   "id": "iphone_a",
+   "room": "iphone_a is in living room",
+   "notes": "this is my living room"
+  },
+  {
+   "id": "iphone_b",
+   "room": null,
+   "notes": "this is kitchen"
+  },
+  {
+   "id": "laptopcam",
+   "room": "bedroom",
+   "notes": "this is my bedroom workspace. And I sit at the desk most of the day"
+  }
+ ],
+ "events": [
+  {
+   "id": "e01",
+   "camera": "webcam",
+   "at": "2026-10-30T12:14:33.630-05:00",
+   "t": 273.63,
+   "end": "2026-10-30T12:14:34.269-05:00",
+   "duration_s": 0.6,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "screened",
+    "confidence": 0.95,
+    "reason": "A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.",
+    "summary": "Person visible in adjacent room. A person is visible in an adjacent room through an open doorway, standing still throughout the frames."
+   },
+   "frame": "f01"
+  },
+  {
+   "id": "e02",
+   "camera": "webcam",
+   "at": "2026-10-30T12:15:50.277-05:00",
+   "t": 350.278,
+   "end": "2026-10-30T12:16:03.463-05:00",
+   "duration_s": 13.2,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "face",
+    "confidence": 0.9625,
+    "reason": "recognized as Resident A by Frigate's face recognition",
+    "summary": null
+   },
+   "frame": null
+  },
+  {
+   "id": "e03",
+   "camera": "webcam",
+   "at": "2026-10-30T12:25:35.027-05:00",
+   "t": 935.027,
+   "end": "2026-10-30T12:27:04.462-05:00",
+   "duration_s": 89.4,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "face",
+    "confidence": 0.9843119266055046,
+    "reason": "recognized as Resident A by Frigate's face recognition",
+    "summary": null
+   },
+   "frame": "f02"
+  },
+  {
+   "id": "e04",
+   "camera": "webcam",
+   "at": "2026-10-30T12:29:08.257-05:00",
+   "t": 1148.257,
+   "end": "2026-10-30T12:30:00.680-05:00",
+   "duration_s": 52.4,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "face",
+    "confidence": 0.92,
+    "reason": "recognized as Resident A by Frigate's face recognition",
+    "summary": null
+   },
+   "frame": "f06"
+  },
+  {
+   "id": "e05",
+   "camera": "webcam",
+   "at": "2026-10-30T12:30:56.448-05:00",
+   "t": 1256.448,
+   "end": "2026-10-30T12:31:08.479-05:00",
+   "duration_s": 12.0,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "screened",
+    "confidence": 0.95,
+    "reason": "Person is bent over in a bedroom workspace, consistent with routine activity.",
+    "summary": "Person bending over in bedroom. A person wearing a white cap and red shirt is bent over in a bedroom, appearing to be focused on something near the floor. They remain in this position throughout the frames."
+   },
+   "frame": "f05"
+  },
+  {
+   "id": "e06",
+   "camera": "webcam",
+   "at": "2026-10-30T12:33:02.247-05:00",
+   "t": 1382.247,
+   "end": "2026-10-30T12:33:12.054-05:00",
+   "duration_s": 9.8,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "screened",
+    "confidence": 0.95,
+    "reason": "The person is in a bedroom workspace, consistent with expected behavior as per prior human judgments.",
+    "summary": "Person in bedroom workspace. A person wearing a cap and glasses is seated in a bedroom, looking around and making facial expressions. They remain in the same location throughout the frames."
+   },
+   "frame": null
+  },
+  {
+   "id": "e07",
+   "camera": "webcam",
+   "at": "2026-10-30T12:34:06.048-05:00",
+   "t": 1446.048,
+   "end": "2026-10-30T12:34:08.870-05:00",
+   "duration_s": 2.8,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "investigated",
+    "confidence": 0.98,
+    "reason": "expected while armed away: recognized as Resident A by Frigate's face recognition. You recently marked this kind of event real, so it stays visible. The investigation found it benign (0.98): The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activity from other cameras. While the duty roster shows no expected activity, the owner’s prior markings and the model’s consistent benign assessment support routine behavior. No evidence of suspicious activity exists.",
+    "summary": "Person walking away from camera. A person in a red shirt and shorts walks away from the camera toward a doorway and exits the frame."
+   },
+   "frame": "f03"
+  },
+  {
+   "id": "e08",
+   "camera": "webcam",
+   "at": "2026-10-30T12:35:15.061-05:00",
+   "t": 1515.062,
+   "end": "2026-10-30T12:35:37.276-05:00",
+   "duration_s": 22.2,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "escalated_human",
+    "stage": "investigated",
+    "confidence": 0.0,
+    "reason": "the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.",
+    "summary": "Person adjusting cap in room. A person is seen adjusting a white cap while seated in a room, gradually revealing their face over time."
+   },
+   "frame": "f04"
+  },
+  {
+   "id": "e09",
+   "camera": "webcam",
+   "at": "2026-10-30T12:38:55.634-05:00",
+   "t": 1735.634,
+   "end": "2026-10-30T12:39:02.068-05:00",
+   "duration_s": 6.4,
+   "labels": [
+    "person"
+   ],
+   "zones": [],
+   "outcome": {
+    "disposition": "downgraded",
+    "stage": "face",
+    "confidence": 0.9645,
+    "reason": "recognized as Resident A by Frigate's face recognition",
+    "summary": null
+   },
+   "frame": null
+  }
+ ],
+ "decisions": [
+  {
+   "id": "d001",
+   "event": "e01",
+   "at": "2026-10-30T12:14:37.181-05:00",
+   "t": 277.181,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.",
+   "rationale": "tier-2 screening: A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.",
+    "tags": [
+     "person",
+     "entrance",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3180.6163470000683,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d002",
+   "event": "e01",
+   "at": "2026-10-30T12:15:21.845-05:00",
+   "t": 321.845,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.",
+   "rationale": "tier-2 screening: A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.",
+    "tags": [
+     "person",
+     "entrance",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3180.6163470000683,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": "Person visible in adjacent room. A person is visible in an adjacent room through an open doorway, standing still throughout the frames.",
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d003",
+   "event": "e02",
+   "at": "2026-10-30T12:15:53.904-05:00",
+   "t": 353.904,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "A person is entering the room from a doorway, which matches the owner's expected behavior of people entering and moving around.",
+   "rationale": "tier-2 screening: A person is entering the room from a doorway, which matches the owner's expected behavior of people entering and moving around.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is entering the room from a doorway, which matches the owner's expected behavior of people entering and moving around.",
+    "tags": [
+     "person",
+     "entry",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3250.9125469996434,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d004",
+   "event": "e02",
+   "at": "2026-10-30T12:15:53.904-05:00",
+   "t": 353.904,
+   "stage": "face",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.9625,
+   "reason": "recognized as Resident A by Frigate's face recognition",
+   "rationale": "recognized as Resident A by Frigate's face recognition",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is entering the room from a doorway, which matches the owner's expected behavior of people entering and moving around.",
+    "tags": [
+     "person",
+     "entry",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3250.9125469996434,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d005",
+   "event": "e03",
+   "at": "2026-10-30T12:25:35.314-05:00",
+   "t": 935.314,
+   "stage": "face",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.9843119266055046,
+   "reason": "recognized as Resident A by Frigate's face recognition",
+   "rationale": "recognized as Resident A by Frigate's face recognition",
+   "analyzing": false,
+   "screen": null,
+   "investigation": null,
+   "summary": null,
+   "patterns": [],
+   "history": "complete"
+  },
+  {
+   "id": "d006",
+   "event": "e04",
+   "at": "2026-10-30T12:29:11.482-05:00",
+   "t": 1151.483,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "A person is visible in an adjacent room through an open doorway, standing still, which matches expected behavior.",
+   "rationale": "tier-2 screening: A person is visible in an adjacent room through an open doorway, standing still, which matches expected behavior.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is visible in an adjacent room through an open doorway, standing still, which matches expected behavior.",
+    "tags": [
+     "person",
+     "adjacent_room",
+     "standing"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 2865.026294999552,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d007",
+   "event": "e04",
+   "at": "2026-10-30T12:29:11.482-05:00",
+   "t": 1151.483,
+   "stage": "face",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.92,
+   "reason": "recognized as Resident A by Frigate's face recognition",
+   "rationale": "recognized as Resident A by Frigate's face recognition",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is visible in an adjacent room through an open doorway, standing still, which matches expected behavior.",
+    "tags": [
+     "person",
+     "adjacent_room",
+     "standing"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 2865.026294999552,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d008",
+   "event": "e05",
+   "at": "2026-10-30T12:30:59.466-05:00",
+   "t": 1259.467,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "Person is bent over in a bedroom workspace, consistent with routine activity.",
+   "rationale": "tier-2 screening: Person is bent over in a bedroom workspace, consistent with routine activity.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "Person is bent over in a bedroom workspace, consistent with routine activity.",
+    "tags": [
+     "person",
+     "bedroom",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 2688.4124129992415,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d009",
+   "event": "e05",
+   "at": "2026-10-30T12:31:56.450-05:00",
+   "t": 1316.451,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "Person is bent over in a bedroom workspace, consistent with routine activity.",
+   "rationale": "tier-2 screening: Person is bent over in a bedroom workspace, consistent with routine activity.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "Person is bent over in a bedroom workspace, consistent with routine activity.",
+    "tags": [
+     "person",
+     "bedroom",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 2688.4124129992415,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": "Person bending over in bedroom. A person wearing a white cap and red shirt is bent over in a bedroom, appearing to be focused on something near the floor. They remain in this position throughout the frames.",
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d010",
+   "event": "e06",
+   "at": "2026-10-30T12:33:05.741-05:00",
+   "t": 1385.742,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "The person is in a bedroom workspace, consistent with expected behavior as per prior human judgments.",
+   "rationale": "tier-2 screening: The person is in a bedroom workspace, consistent with expected behavior as per prior human judgments.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "The person is in a bedroom workspace, consistent with expected behavior as per prior human judgments.",
+    "tags": [
+     "person",
+     "bedroom",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3139.5253430000594,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d011",
+   "event": "e06",
+   "at": "2026-10-30T12:33:59.775-05:00",
+   "t": 1439.775,
+   "stage": "screened",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.95,
+   "reason": "The person is in a bedroom workspace, consistent with expected behavior as per prior human judgments.",
+   "rationale": "tier-2 screening: The person is in a bedroom workspace, consistent with expected behavior as per prior human judgments.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "The person is in a bedroom workspace, consistent with expected behavior as per prior human judgments.",
+    "tags": [
+     "person",
+     "bedroom",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3139.5253430000594,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": "Person in bedroom workspace. A person wearing a cap and glasses is seated in a bedroom, looking around and making facial expressions. They remain in the same location throughout the frames.",
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d012",
+   "event": "e07",
+   "at": "2026-10-30T12:34:06.750-05:00",
+   "t": 1446.75,
+   "stage": "ingested",
+   "disposition": "alerted",
+   "severity": "alert",
+   "confidence": 0.0,
+   "reason": "analyzing: the vision model is still looking at this event",
+   "rationale": "analyzing: the vision model is still looking at this event",
+   "analyzing": true,
+   "screen": null,
+   "investigation": null,
+   "summary": null,
+   "patterns": [],
+   "history": "complete"
+  },
+  {
+   "id": "d013",
+   "event": "e07",
+   "at": "2026-10-30T12:34:09.558-05:00",
+   "t": 1449.559,
+   "stage": "screened",
+   "disposition": "alerted",
+   "severity": "alert",
+   "confidence": 0.95,
+   "reason": "The person is in a bedroom workspace, holding a cap and looking toward the side, consistent with routine activity.",
+   "rationale": "a person in view while armed away: tier 2 saw benign @ 0.95 (The person is in a bedroom workspace, holding a cap and looking toward the side, consistent with routine activity.), but only an investigation may clear it. Alerting now; investigation in progress.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "The person is in a bedroom workspace, holding a cap and looking toward the side, consistent with routine activity.",
+    "tags": [
+     "person",
+     "bedroom",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3231.9819140002437,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d014",
+   "event": "e07",
+   "at": "2026-10-30T12:34:33.625-05:00",
+   "t": 1473.626,
+   "stage": "investigated",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.98,
+   "reason": "expected while armed away: recognized as Resident A by Frigate's face recognition. You recently marked this kind of event real, so it stays visible. The investigation found it benign (0.98): The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activity from other cameras. While the duty roster shows no expected activity, the owner’s prior markings and the model’s consistent benign assessment support routine behavior. No evidence of suspicious activity exists.",
+   "rationale": "expected while armed away: recognized as Resident A by Frigate's face recognition. You recently marked this kind of event real, so it stays visible. The investigation found it benign (0.98): The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activity from other cameras. While the duty roster shows no expected activity, the owner’s prior markings and the model’s consistent benign assessment support routine behavior. No evidence of suspicious activity exists.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "The person is in a bedroom workspace, holding a cap and looking toward the side, consistent with routine activity.",
+    "tags": [
+     "person",
+     "bedroom",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3231.9819140002437,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": "i01",
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d015",
+   "event": "e07",
+   "at": "2026-10-30T12:34:56.752-05:00",
+   "t": 1496.753,
+   "stage": "investigated",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.98,
+   "reason": "expected while armed away: recognized as Resident A by Frigate's face recognition. You recently marked this kind of event real, so it stays visible. The investigation found it benign (0.98): The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activity from other cameras. While the duty roster shows no expected activity, the owner’s prior markings and the model’s consistent benign assessment support routine behavior. No evidence of suspicious activity exists.",
+   "rationale": "expected while armed away: recognized as Resident A by Frigate's face recognition. You recently marked this kind of event real, so it stays visible. The investigation found it benign (0.98): The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activity from other cameras. While the duty roster shows no expected activity, the owner’s prior markings and the model’s consistent benign assessment support routine behavior. No evidence of suspicious activity exists.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "The person is in a bedroom workspace, holding a cap and looking toward the side, consistent with routine activity.",
+    "tags": [
+     "person",
+     "bedroom",
+     "routine"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3231.9819140002437,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": "i01",
+   "summary": "Person walking away from camera. A person in a red shirt and shorts walks away from the camera toward a doorway and exits the frame.",
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d016",
+   "event": "e08",
+   "at": "2026-10-30T12:35:15.775-05:00",
+   "t": 1515.776,
+   "stage": "ingested",
+   "disposition": "alerted",
+   "severity": "alert",
+   "confidence": 0.0,
+   "reason": "analyzing: the vision model is still looking at this event",
+   "rationale": "analyzing: the vision model is still looking at this event",
+   "analyzing": true,
+   "screen": null,
+   "investigation": null,
+   "summary": null,
+   "patterns": [],
+   "history": "complete"
+  },
+  {
+   "id": "d017",
+   "event": "e08",
+   "at": "2026-10-30T12:35:18.725-05:00",
+   "t": 1518.726,
+   "stage": "screened",
+   "disposition": "alerted",
+   "severity": "alert",
+   "confidence": 0.95,
+   "reason": "A person is visible in an adjacent room through an open doorway, standing still, which matches the owner's prior expectation of routine activity.",
+   "rationale": "a person in view while armed away: tier 2 saw benign @ 0.95 (A person is visible in an adjacent room through an open doorway, standing still, which matches the owner's prior expectation of routine activity.), but only an investigation may clear it. Alerting now; investigation in progress.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is visible in an adjacent room through an open doorway, standing still, which matches the owner's prior expectation of routine activity.",
+    "tags": [
+     "person",
+     "adjacent_room",
+     "standing"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3367.0242539992614,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": null,
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d018",
+   "event": "e08",
+   "at": "2026-10-30T12:35:38.773-05:00",
+   "t": 1538.773,
+   "stage": "investigated",
+   "disposition": "escalated_human",
+   "severity": "alert",
+   "confidence": 0.0,
+   "reason": "the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.",
+   "rationale": "the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is visible in an adjacent room through an open doorway, standing still, which matches the owner's prior expectation of routine activity.",
+    "tags": [
+     "person",
+     "adjacent_room",
+     "standing"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3367.0242539992614,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": "i02",
+   "summary": null,
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d019",
+   "event": "e08",
+   "at": "2026-10-30T12:36:25.201-05:00",
+   "t": 1585.202,
+   "stage": "investigated",
+   "disposition": "escalated_human",
+   "severity": "alert",
+   "confidence": 0.0,
+   "reason": "the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.",
+   "rationale": "the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.",
+   "analyzing": false,
+   "screen": {
+    "verdict": "benign",
+    "confidence": 0.95,
+    "reason": "A person is visible in an adjacent room through an open doorway, standing still, which matches the owner's prior expectation of routine activity.",
+    "tags": [
+     "person",
+     "adjacent_room",
+     "standing"
+    ],
+    "model": "ollama/qwen3-vl:8b-instruct",
+    "latency_ms": 3367.0242539992614,
+    "frames_used": 1,
+    "error": null
+   },
+   "investigation": "i02",
+   "summary": "Person adjusting cap in room. A person is seen adjusting a white cap while seated in a room, gradually revealing their face over time.",
+   "patterns": [
+    "p01"
+   ],
+   "history": "complete"
+  },
+  {
+   "id": "d020",
+   "event": "e09",
+   "at": "2026-10-30T12:38:56.023-05:00",
+   "t": 1736.024,
+   "stage": "face",
+   "disposition": "downgraded",
+   "severity": "detection",
+   "confidence": 0.9645,
+   "reason": "recognized as Resident A by Frigate's face recognition",
+   "rationale": "recognized as Resident A by Frigate's face recognition",
+   "analyzing": false,
+   "screen": null,
+   "investigation": null,
+   "summary": null,
+   "patterns": [],
+   "history": "complete"
+  }
+ ],
+ "investigations": [
+  {
+   "id": "i01",
+   "event": "e07",
+   "status": "done",
+   "verdict": "benign",
+   "confidence": 0.98,
+   "conclusion": "The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activity from other cameras. While the duty roster shows no expected activity, the owner’s prior markings and the model’s consistent benign assessment support routine behavior. No evidence of suspicious activity exists.",
+   "model": "tools/qwen3-vl:8b-instruct",
+   "started": {
+    "at": "2026-10-30T12:34:09.570-05:00",
+    "t": 1449.57
+   },
+   "finished": {
+    "at": "2026-10-30T12:34:33.619-05:00",
+    "t": 1473.619
+   },
+   "seconds": 24.0,
+   "steps": [
+    {
+     "evidence_id": "i01/1",
+     "iteration": 1,
+     "tool": "search_similar_alerts",
+     "arguments": {
+      "query": "person in bedroom workspace holding cap",
+      "camera": "webcam",
+      "signature": "webcam|person|nozone",
+      "limit": 5,
+      "recurrence_window_days": 7
+     },
+     "result": "{\"query\": \"person in bedroom workspace holding cap\", \"pattern_matches\": [{\"pattern_id\": \"pat-9bdd7615435a\", \"kind\": \"false_alarm\", \"signature\": \"webcam|person|nozone\", \"description\": \"recurring false alarm on webcam for [\\\"person\\\"]\", \"similarity\": 0.95, \"score\": 0.9499, \"corrections\": 23, \"agreements\": 12, \"disagreements\": 0, \"trust\": 0.9286, \"age_days\": 0.0}, {\"pattern_id\": \"pat-778008b444f0\"...",
+     "latency_ms": 15.4,
+     "error": null
+    },
+    {
+     "evidence_id": "i01/2",
+     "iteration": 2,
+     "tool": "get_device_status",
+     "arguments": {
+      "camera": "webcam"
+     },
+     "result": "{\"arming\": {\"state\": \"armed_away\", \"since\": 1793381629.0024226, \"source\": \"chat\"}, \"cameras\": {\"webcam\": {\"camera_fps\": 5.0, \"detection_fps\": 5.0, \"process_fps\": 5.0, \"skipped_fps\": 0.0, \"pid\": 907, \"healthy\": true, \"issues\": []}}, \"detectors\": {\"ov\": {\"inference_speed_ms\": 12.86, \"detection_start\": 0.0, \"healthy\": true}}, \"uptime_s\": 5192, \"nvr_version\": \"0.18.2-cfa08c5\", \"storage\": {\"/media/f...",
+     "latency_ms": 9.5,
+     "error": null
+    },
+    {
+     "evidence_id": "i01/3",
+     "iteration": 3,
+     "tool": "cross_reference_cameras",
+     "arguments": {
+      "start_time": 1793381646.048248,
+      "window_before_s": 120,
+      "window_after_s": 120,
+      "exclude_camera": "webcam",
+      "cameras": [
+       "laptopcam",
+       "iphone_b"
+      ],
+      "labels": [
+       "person"
+      ]
+     },
+     "result": "{\"window\": {\"after\": 1793381526.048248, \"before\": 1793381766.048248, \"anchor\": 1793381646.048248}, \"cameras_searched\": [\"laptopcam\", \"iphone_b\"], \"event_count\": 0, \"cameras_with_activity\": {}, \"same_room_activity\": {}, \"timeline\": [], \"interpretation\": \"No other camera saw anything in this window. Activity confined to a single camera is more consistent with a localized or spurious trigger than ...",
+     "latency_ms": 10.2,
+     "error": null
+    },
+    {
+     "evidence_id": "i01/4",
+     "iteration": 4,
+     "tool": "check_duty_roster",
+     "arguments": {
+      "timestamp": 1793381646.048248,
+      "camera": "webcam",
+      "zones": [],
+      "labels": [
+       "person"
+      ]
+     },
+     "result": "{\"configured\": true, \"local_time\": \"2026-10-30 17:34:06 UTC\", \"day\": \"fri\", \"matches\": [], \"expected\": false, \"interpretation\": \"Nothing on the roster covers Fri 17:34 for this camera/zone/label combination. Activity here is unscheduled, which raises -- but does not by itself establish -- suspicion.\"}",
+     "latency_ms": 0.4,
+     "error": null
+    },
+    {
+     "evidence_id": "i01/5",
+     "iteration": 5,
+     "tool": "get_historical_frames",
+     "arguments": {
+      "camera": "webcam",
+      "timestamp": 1793381646.048248,
+      "offsets_s": [
+       -60,
+       -30,
+       0,
+       30
+      ]
+     },
+     "result": "{\"camera\": \"webcam\", \"anchor\": 1793381646.048248, \"frames\": [{\"timestamp\": 1793381586.048248, \"offset_s\": -60.0, \"local_time\": \"12:33:06\", \"available\": true, \"bytes\": 16071}, {\"timestamp\": 1793381616.048248, \"offset_s\": -30.0, \"local_time\": \"12:33:36\", \"available\": true, \"bytes\": 17246}, {\"timestamp\": 1793381646.048248, \"offset_s\": 0.0, \"local_time\": \"12:34:06\", \"available\": true, \"bytes\": 1886...",
+     "latency_ms": 464.3,
+     "error": null
+    },
+    {
+     "evidence_id": "i01/6",
+     "iteration": 6,
+     "tool": "describe_historical_frames",
+     "arguments": {
+      "camera": "webcam",
+      "timestamp": 1793381646.048248,
+      "question": "Is the person holding a cap and looking toward the side, consistent with routine activity?",
+      "offsets_s": [
+       -60,
+       -30,
+       0
+      ]
+     },
+     "result": "{\"camera\": \"webcam\", \"frames_examined\": 3, \"offsets_s\": [-60.0, -30.0, 0.0], \"question\": \"Is the person holding a cap and looking toward the side, consistent with routine activity?\", \"verdict\": \"benign\", \"confidence\": 0.95, \"description\": \"The person is seen wearing a cap and looking toward the side in a casual indoor setting, which is consistent with routine activity such as adjusting posture ...",
+     "latency_ms": 6224.4,
+     "error": null
+    }
+   ],
+   "thoughts": [
+    "{\n  \"verdict\": \"benign\",\n  \"confidence\": 0.98,\n  \"conclusion\": \"The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activity from other cameras. While the duty roster shows no expected activity, the owner’s prior markings and the model’s consistent benign assessment support routine behavior. No evidence of suspicious activity exists.\",\n  \"recommended_action\": \"none\",\n  \"evidence\": [\n    \"Person holding a cap and looking toward the side, consistent with routine activity (confirmed by describe_historical_frames).\",\n    \"Camera is healthy and armed_away, with no issues.\",\n    \"No other cameras detected activity in the same window.\",\n    \"Owner has marked similar events as expected.\",\n    \"False alarm pattern exists for this signature (trust 0.9286), but frames confirm benign behavior.\"\n  ]\n}",
+    "model usage: 26132 input / 580 output tokens (ollama/qwen3-vl:8b-instruct)"
+   ],
+   "observations": [],
+   "inferences": [],
+   "unknowns": [],
+   "error": null
+  },
+  {
+   "id": "i02",
+   "event": "e08",
+   "status": "done",
+   "verdict": "uncertain",
+   "confidence": 0.0,
+   "conclusion": "The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.",
+   "model": "tools/qwen3-vl:8b-instruct",
+   "started": {
+    "at": "2026-10-30T12:35:18.737-05:00",
+    "t": 1518.737
+   },
+   "finished": {
+    "at": "2026-10-30T12:35:38.766-05:00",
+    "t": 1538.767
+   },
+   "seconds": 20.0,
+   "steps": [
+    {
+     "evidence_id": "i02/1",
+     "iteration": 1,
+     "tool": "search_similar_alerts",
+     "arguments": {
+      "query": "person in adjacent room through open doorway",
+      "camera": "webcam",
+      "signature": "webcam|person|nozone",
+      "limit": 5,
+      "recurrence_window_days": 7
+     },
+     "result": "{\"query\": \"person in adjacent room through open doorway\", \"pattern_matches\": [{\"pattern_id\": \"pat-9bdd7615435a\", \"kind\": \"false_alarm\", \"signature\": \"webcam|person|nozone\", \"description\": \"recurring false alarm on webcam for [\\\"person\\\"]\", \"similarity\": 0.95, \"score\": 0.9499, \"corrections\": 23, \"agreements\": 12, \"disagreements\": 0, \"trust\": 0.9286, \"age_days\": 0.01}, {\"pattern_id\": \"pat-778008b...",
+     "latency_ms": 11.4,
+     "error": null
+    },
+    {
+     "evidence_id": "i02/2",
+     "iteration": 2,
+     "tool": "get_device_status",
+     "arguments": {
+      "camera": "webcam"
+     },
+     "result": "{\"arming\": {\"state\": \"armed_away\", \"since\": 1793381629.0024226, \"source\": \"chat\"}, \"cameras\": {\"webcam\": {\"camera_fps\": 5.0, \"detection_fps\": 4.0, \"process_fps\": 5.0, \"skipped_fps\": 0.0, \"pid\": 907, \"healthy\": true, \"issues\": []}}, \"detectors\": {\"ov\": {\"inference_speed_ms\": 13.73, \"detection_start\": 0.0, \"healthy\": true}}, \"uptime_s\": 5268, \"nvr_version\": \"0.18.2-cfa08c5\", \"storage\": {\"/media/f...",
+     "latency_ms": 9.9,
+     "error": null
+    },
+    {
+     "evidence_id": "i02/3",
+     "iteration": 3,
+     "tool": "cross_reference_cameras",
+     "arguments": {
+      "start_time": 1793381715.061937,
+      "window_before_s": 120,
+      "window_after_s": 120,
+      "exclude_camera": "webcam",
+      "cameras": [
+       "laptopcam",
+       "iphone_b"
+      ],
+      "labels": [
+       "person"
+      ]
+     },
+     "result": "{\"window\": {\"after\": 1793381595.061937, \"before\": 1793381835.061937, \"anchor\": 1793381715.061937}, \"cameras_searched\": [\"laptopcam\", \"iphone_b\"], \"event_count\": 0, \"cameras_with_activity\": {}, \"same_room_activity\": {}, \"timeline\": [], \"interpretation\": \"No other camera saw anything in this window. Activity confined to a single camera is more consistent with a localized or spurious trigger than ...",
+     "latency_ms": 13.0,
+     "error": null
+    },
+    {
+     "evidence_id": "i02/4",
+     "iteration": 4,
+     "tool": "check_duty_roster",
+     "arguments": {
+      "timestamp": 1793381715.061937,
+      "camera": "webcam",
+      "zones": [],
+      "labels": [
+       "person"
+      ]
+     },
+     "result": "{\"configured\": true, \"local_time\": \"2026-10-30 17:35:15 UTC\", \"day\": \"fri\", \"matches\": [], \"expected\": false, \"interpretation\": \"Nothing on the roster covers Fri 17:35 for this camera/zone/label combination. Activity here is unscheduled, which raises -- but does not by itself establish -- suspicion.\"}",
+     "latency_ms": 0.1,
+     "error": null
+    },
+    {
+     "evidence_id": "i02/5",
+     "iteration": 5,
+     "tool": "get_historical_frames",
+     "arguments": {
+      "camera": "webcam",
+      "timestamp": 1793381715.061937,
+      "offsets_s": [
+       -60,
+       -30,
+       0,
+       30
+      ]
+     },
+     "result": "{\"camera\": \"webcam\", \"anchor\": 1793381715.061937, \"frames\": [{\"timestamp\": 1793381655.061937, \"offset_s\": -60.0, \"local_time\": \"12:34:15\", \"available\": true, \"bytes\": 18166}, {\"timestamp\": 1793381685.061937, \"offset_s\": -30.0, \"local_time\": \"12:34:45\", \"missing\": \"no recording of that moment (expired, or only moments with motion are kept)\", \"error\": \"GET /webcam/recordings/1793381685.061937/sna...",
+     "latency_ms": 377.9,
+     "error": null
+    },
+    {
+     "evidence_id": "i02/6",
+     "iteration": 6,
+     "tool": "describe_historical_frames",
+     "arguments": {
+      "camera": "webcam",
+      "timestamp": 1793381715.061937,
+      "question": "Is the person visible in the adjacent room through the open doorway in the frame at -60s?",
+      "offsets_s": [
+       -60
+      ]
+     },
+     "result": "{\"camera\": \"webcam\", \"frames_examined\": 1, \"offsets_s\": [-60.0], \"question\": \"Is the person visible in the adjacent room through the open doorway in the frame at -60s?\", \"verdict\": \"uncertain\", \"confidence\": 0.7, \"description\": \"The doorway in the background is partially visible but not clear enough to confirm if a person is present.\", \"model\": \"ollama/qwen3-vl:8b-instruct\"}",
+     "latency_ms": 2991.3,
+     "error": null
+    }
+   ],
+   "thoughts": [
+    "model usage: 26213 input / 579 output tokens (ollama/qwen3-vl:8b-instruct)"
+   ],
+   "observations": [],
+   "inferences": [],
+   "unknowns": [],
+   "error": null
+  }
+ ],
+ "frames": [
+  {
+   "id": "f01",
+   "event": "e01",
+   "file": "frames/f01.jpg",
+   "at": "2026-10-30T12:14:33.450-05:00",
+   "t": 273.45,
+   "source": "recording at the person's best frame",
+   "width": 960,
+   "height": 540,
+   "privacy": "blurred",
+   "boxes": 1
+  },
+  {
+   "id": "f02",
+   "event": "e03",
+   "file": "frames/f02.jpg",
+   "at": "2026-10-30T12:15:53.623-05:00",
+   "t": 353.624,
+   "source": "recording at the person's best frame",
+   "width": 960,
+   "height": 540,
+   "privacy": "blurred",
+   "boxes": 1
+  },
+  {
+   "id": "f03",
+   "event": "e07",
+   "file": "frames/f03.jpg",
+   "at": "2026-10-30T12:33:14.038-05:00",
+   "t": 1394.039,
+   "source": "recording at the person's best frame",
+   "width": 960,
+   "height": 540,
+   "privacy": "blurred",
+   "boxes": 1
+  },
+  {
+   "id": "f04",
+   "event": "e08",
+   "file": "frames/f04.jpg",
+   "at": "2026-10-30T12:35:41.067-05:00",
+   "t": 1541.067,
+   "source": "recording at the person's best frame",
+   "width": 960,
+   "height": 540,
+   "privacy": "blurred",
+   "boxes": 1
+  },
+  {
+   "id": "f05",
+   "event": "e05",
+   "file": "frames/f05.jpg",
+   "at": "2026-10-30T12:31:13.668-05:00",
+   "t": 1273.668,
+   "source": "recording at the person's best frame",
+   "width": 960,
+   "height": 540,
+   "privacy": "blurred",
+   "boxes": 1
+  },
+  {
+   "id": "f06",
+   "event": "e04",
+   "file": "frames/f06.jpg",
+   "at": "2026-10-30T12:29:36.872-05:00",
+   "t": 1176.873,
+   "source": "recording at the person's best frame",
+   "width": 960,
+   "height": 540,
+   "privacy": "blurred",
+   "boxes": 1
+  }
+ ],
+ "messages": [
+  {
+   "id": "m001",
+   "at": "2026-10-30T12:26:58.465-05:00",
+   "t": 1018.465,
+   "message": "tg01",
+   "action": "sent",
+   "kind": "digest",
+   "event": null,
+   "members": [],
+   "text": "🗒️ <b>Watchwise digest</b> · Thu 12:26 → Fri 12:26\n3 events: 0 sent to you, 3 held back\n<b>Held back, and why</b>\n👤 recognized Resident A · 2\n👁️ the vision model, shown what you taught (“recurring false alarm on webcam for [\"person\"]” (21 of your corrections)), found it ordinary · 1\n🔍 <b>Spot-check 2 of the 3</b> (below): ✅ if holding it back was right, 🚨 if you wanted an alert.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m002",
+   "at": "2026-10-30T12:27:00.234-05:00",
+   "t": 1020.234,
+   "message": "tg02",
+   "action": "sent",
+   "kind": "spot_check",
+   "event": "e01",
+   "members": [],
+   "text": "<b>🔍 Spot-check · Person · webcam · Fri 12:14</b>\nHeld back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.\nWhy: A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.\nWhat happened: Person visible in adjacent room. A person is visible in an adjacent room through an open doorway, standing still throughout the frames.\nVision model: benign @ 0.95 · first look by the vision model",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e01"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e01"
+     }
+    ],
+    [
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e01"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f01"
+  },
+  {
+   "id": "m003",
+   "at": "2026-10-30T12:27:01.392-05:00",
+   "t": 1021.393,
+   "message": "tg03",
+   "action": "sent",
+   "kind": "spot_check",
+   "event": "e03",
+   "members": [],
+   "text": "<b>🔍 Spot-check · Person · webcam · Fri 12:25</b>\nHeld back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.\nWhy: recognized as Resident A by Frigate's face recognition\nDecided by Frigate's face recognition (match score 0.98)",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e03"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e03"
+     }
+    ],
+    [
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e03"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f02"
+  },
+  {
+   "id": "m004",
+   "at": "2026-10-30T12:27:44.687-05:00",
+   "t": 1064.687,
+   "message": "tg02",
+   "action": "edited",
+   "kind": "spot_check",
+   "event": "e01",
+   "members": [],
+   "text": "<b>🔍 Spot-check · Person · webcam · Fri 12:14</b>\nHeld back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.\nWhy: A person is seen entering a room, which matches the owner's expected behavior of people moving through the space.\nWhat happened: Person visible in adjacent room. A person is visible in an adjacent room through an open doorway, standing still throughout the frames.\nVision model: benign @ 0.95 · first look by the vision model\n\n🔍 Spot-check: right to hold back. ✅ Marked expected (22 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+   "buttons": [
+    [
+     {
+      "label": "↩️ Undo",
+      "action": "undo",
+      "event": "e01",
+      "corrections": [
+       "c01"
+      ]
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e01"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f01"
+  },
+  {
+   "id": "m005",
+   "at": "2026-10-30T12:28:01.829-05:00",
+   "t": 1081.83,
+   "message": "tg03",
+   "action": "edited",
+   "kind": "spot_check",
+   "event": "e03",
+   "members": [],
+   "text": "<b>🔍 Spot-check · Person · webcam · Fri 12:25</b>\nHeld back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.\nWhy: recognized as Resident A by Frigate's face recognition\nDecided by Frigate's face recognition (match score 0.98)\n\n🔍 Spot-check: right to hold back. ✅ Marked expected (23 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+   "buttons": [
+    [
+     {
+      "label": "↩️ Undo",
+      "action": "undo",
+      "event": "e03",
+      "corrections": [
+       "c02"
+      ]
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e03"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f02"
+  },
+  {
+   "id": "m006",
+   "at": "2026-10-30T12:33:47.723-05:00",
+   "t": 1427.724,
+   "message": "tg04",
+   "action": "sent",
+   "kind": "chat",
+   "event": null,
+   "members": [],
+   "text": "I’ve proposed switching the house to Away mode. Tap ✅ Confirm to apply it.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m007",
+   "at": "2026-10-30T12:33:47.974-05:00",
+   "t": 1427.974,
+   "message": "tg05",
+   "action": "sent",
+   "kind": "proposal",
+   "event": null,
+   "members": [],
+   "text": "📝 Switch arming to Away.\nNothing changes unless you confirm.",
+   "buttons": [
+    [
+     {
+      "label": "✅ Confirm",
+      "action": "confirm",
+      "proposal": "pr01"
+     },
+     {
+      "label": "✖️ Cancel",
+      "action": "cancel",
+      "proposal": "pr01"
+     }
+    ]
+   ],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m008",
+   "at": "2026-10-30T12:33:49.471-05:00",
+   "t": 1429.471,
+   "message": "tg05",
+   "action": "edited",
+   "kind": "proposal",
+   "event": null,
+   "members": [],
+   "text": "✅ Arming is now Away.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m009",
+   "at": "2026-10-30T12:34:08.050-05:00",
+   "t": 1448.05,
+   "message": "tg06",
+   "action": "sent",
+   "kind": "alert",
+   "event": "e07",
+   "members": [],
+   "text": "<b>🚨 Person · webcam · 12:34</b>\n⏳ Analyzing the frames; this message will update with the verdict.",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e07"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "🔇 Snooze",
+      "action": "snooze",
+      "event": "e07"
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f03"
+  },
+  {
+   "id": "m010",
+   "at": "2026-10-30T12:34:09.830-05:00",
+   "t": 1449.831,
+   "message": "tg06",
+   "action": "edited",
+   "kind": "alert",
+   "event": "e07",
+   "members": [],
+   "text": "<b>🚨 Person · webcam · 12:34</b>\nWhy: The person is in a bedroom workspace, holding a cap and looking toward the side, consistent with routine activity.\nVision model: benign @ 0.95 · first look by the vision model\n🔎 Investigating with the forensic tools; this message will update.",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e07"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "🔇 Snooze",
+      "action": "snooze",
+      "event": "e07"
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f03"
+  },
+  {
+   "id": "m011",
+   "at": "2026-10-30T12:34:34.097-05:00",
+   "t": 1474.098,
+   "message": "tg06",
+   "action": "edited",
+   "kind": "alert",
+   "event": "e07",
+   "members": [],
+   "text": "<b>ℹ️ Person · webcam · 12:34</b>\nWhy: expected while armed away: recognized as Resident A by Frigate's face recognition. You recently marked this kind of event real, so it stays visible. The investigation found it benign (0.98): The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activit…\nConfidence 0.98 · after an investigation",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e07"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "🔇 Snooze",
+      "action": "snooze",
+      "event": "e07"
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f03"
+  },
+  {
+   "id": "m012",
+   "at": "2026-10-30T12:34:57.249-05:00",
+   "t": 1497.25,
+   "message": "tg06",
+   "action": "edited",
+   "kind": "alert",
+   "event": "e07",
+   "members": [],
+   "text": "<b>ℹ️ Person · webcam · 12:34</b>\nWhy: expected while armed away: recognized as Resident A by Frigate's face recognition. You recently marked this kind of event real, so it stays visible. The investigation found it benign (0.98): The person is holding a cap and looking toward the side in a bedroom workspace, consistent with routine activity. Historical frames confirm this behavior, and the camera is healthy with no corroborating activit…\nWhat happened: Person walking away from camera. A person in a red shirt and shorts walks away from the camera toward a doorway and exits the frame.\nConfidence 0.98 · after an investigation",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e07"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "🔇 Snooze",
+      "action": "snooze",
+      "event": "e07"
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e07"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f03"
+  },
+  {
+   "id": "m013",
+   "at": "2026-10-30T12:35:17.104-05:00",
+   "t": 1517.105,
+   "message": "tg07",
+   "action": "sent",
+   "kind": "alert",
+   "event": "e08",
+   "members": [],
+   "text": "<b>🚨 Person · webcam · 12:35</b>\n⏳ Analyzing the frames; this message will update with the verdict.",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e08"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "🔇 Snooze",
+      "action": "snooze",
+      "event": "e08"
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f04"
+  },
+  {
+   "id": "m014",
+   "at": "2026-10-30T12:35:18.988-05:00",
+   "t": 1518.988,
+   "message": "tg07",
+   "action": "edited",
+   "kind": "alert",
+   "event": "e08",
+   "members": [],
+   "text": "<b>🚨 Person · webcam · 12:35</b>\nWhy: A person is visible in an adjacent room through an open doorway, standing still, which matches the owner's prior expectation of routine activity.\nVision model: benign @ 0.95 · first look by the vision model\n🔎 Investigating with the forensic tools; this message will update.",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e08"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "🔇 Snooze",
+      "action": "snooze",
+      "event": "e08"
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f04"
+  },
+  {
+   "id": "m015",
+   "at": "2026-10-30T12:35:39.296-05:00",
+   "t": 1539.297,
+   "message": "tg07",
+   "action": "edited",
+   "kind": "alert",
+   "event": "e08",
+   "members": [],
+   "text": "<b>⚠️ Person · webcam · 12:35</b>\nWhy: the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.\nConfidence 0.00 · after an investigation",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e08"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "🔇 Snooze",
+      "action": "snooze",
+      "event": "e08"
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f04"
+  },
+  {
+   "id": "m016",
+   "at": "2026-10-30T12:36:24.886-05:00",
+   "t": 1584.886,
+   "message": "tg07",
+   "action": "edited",
+   "kind": "alert",
+   "event": "e08",
+   "members": [],
+   "text": "<b>⚠️ Person · webcam · 12:35</b>\nWhy: the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.\nConfidence 0.00 · after an investigation\n\n✅ Marked expected (24 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+   "buttons": [
+    [
+     {
+      "label": "↩️ Undo",
+      "action": "undo",
+      "event": "e08",
+      "corrections": [
+       "c03"
+      ]
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f04"
+  },
+  {
+   "id": "m017",
+   "at": "2026-10-30T12:36:25.677-05:00",
+   "t": 1585.678,
+   "message": "tg07",
+   "action": "edited",
+   "kind": "alert",
+   "event": "e08",
+   "members": [],
+   "text": "<b>⚠️ Person · webcam · 12:35</b>\nWhy: the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.\nWhat happened: Person adjusting cap in room. A person is seen adjusting a white cap while seated in a room, gradually revealing their face over time.\nConfidence 0.00 · after an investigation\n\n✅ Marked expected (24 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+   "buttons": [
+    [
+     {
+      "label": "↩️ Undo",
+      "action": "undo",
+      "event": "e08",
+      "corrections": [
+       "c03"
+      ]
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e08"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f04"
+  },
+  {
+   "id": "m018",
+   "at": "2026-10-30T12:36:42.593-05:00",
+   "t": 1602.594,
+   "message": "tg08",
+   "action": "sent",
+   "kind": "chat",
+   "event": null,
+   "members": [],
+   "text": "While you were away, Resident A was in the bedroom. Frigate recognized him multiple times, and he was seen adjusting a cap, walking around, and bending over. One event asked you to decide, but no alerts were triggered.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m019",
+   "at": "2026-10-30T12:37:27.129-05:00",
+   "t": 1647.13,
+   "message": "tg09",
+   "action": "sent",
+   "kind": "chat",
+   "event": null,
+   "members": [],
+   "text": "The 12:25 event was marked as \"routine, no card\" because Frigate recognized Resident A, and you previously marked it as expected. No alert was sent. Here’s the photo.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m020",
+   "at": "2026-10-30T12:37:27.721-05:00",
+   "t": 1647.722,
+   "message": "tg10",
+   "action": "sent",
+   "kind": "chat_photo",
+   "event": "e03",
+   "members": [],
+   "text": "📷 webcam · Fri 12:25",
+   "buttons": [],
+   "has_photo": true,
+   "frame": "f02"
+  },
+  {
+   "id": "m021",
+   "at": "2026-10-30T12:37:37.772-05:00",
+   "t": 1657.772,
+   "message": "tg11",
+   "action": "sent",
+   "kind": "chat",
+   "event": null,
+   "members": [],
+   "text": "I’ve proposed removing the night security patrol rule. Tap ✅ Confirm to apply it.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m022",
+   "at": "2026-10-30T12:37:38.018-05:00",
+   "t": 1658.018,
+   "message": "tg12",
+   "action": "sent",
+   "kind": "proposal",
+   "event": null,
+   "members": [],
+   "text": "📝 Remove from the duty roster: “night_security_patrol”, Mon Tue Wed Thu Fri Sat Sun 22:00–06:00 on cam_yard, cam_drive (rostered security patrol walking the perimeter). Then a person there at those times is no longer expected.\nNothing changes unless you confirm.",
+   "buttons": [
+    [
+     {
+      "label": "✅ Confirm",
+      "action": "confirm",
+      "proposal": "pr02"
+     },
+     {
+      "label": "✖️ Cancel",
+      "action": "cancel",
+      "proposal": "pr02"
+     }
+    ]
+   ],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m023",
+   "at": "2026-10-30T12:37:40.461-05:00",
+   "t": 1660.462,
+   "message": "tg12",
+   "action": "edited",
+   "kind": "proposal",
+   "event": null,
+   "members": [],
+   "text": "✅ Removed “night_security_patrol” from the duty roster (duty_roster.yml; the previous version is duty_roster.yml.bak-20261030-123739).",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m024",
+   "at": "2026-10-30T12:37:48.488-05:00",
+   "t": 1668.488,
+   "message": "tg13",
+   "action": "sent",
+   "kind": "chat",
+   "event": null,
+   "members": [],
+   "text": "I’ve proposed removing the cleaner rule. Tap ✅ Confirm to apply it.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m025",
+   "at": "2026-10-30T12:37:48.734-05:00",
+   "t": 1668.735,
+   "message": "tg14",
+   "action": "sent",
+   "kind": "proposal",
+   "event": null,
+   "members": [],
+   "text": "📝 Remove from the duty roster: “cleaner”, Thu 13:00–16:00 on cam_door (contract cleaner entering via the front door). Then a person there at those times is no longer expected.\nNothing changes unless you confirm.",
+   "buttons": [
+    [
+     {
+      "label": "✅ Confirm",
+      "action": "confirm",
+      "proposal": "pr03"
+     },
+     {
+      "label": "✖️ Cancel",
+      "action": "cancel",
+      "proposal": "pr03"
+     }
+    ]
+   ],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m026",
+   "at": "2026-10-30T12:37:54.323-05:00",
+   "t": 1674.324,
+   "message": "tg14",
+   "action": "edited",
+   "kind": "proposal",
+   "event": null,
+   "members": [],
+   "text": "✅ Removed “cleaner” from the duty roster (duty_roster.yml; the previous version is duty_roster.yml.bak-20261030-123753).",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m027",
+   "at": "2026-10-30T12:38:10.039-05:00",
+   "t": 1690.039,
+   "message": "tg15",
+   "action": "sent",
+   "kind": "digest",
+   "event": null,
+   "members": [],
+   "text": "🗒️ <b>Watchwise digest</b> · Fri 12:26 → Fri 12:38\n5 events: 2 sent to you, 3 held back\n<b>Held back, and why</b>\n👁️ the vision model, shown your 24 corrections for person on webcam, found it ordinary · 2\n👤 recognized Resident A · 1\nYour answers: 3 ✅ Expected, 0 🚨 Alert me.\nSpot-checks so far: 2 of 2 were right to hold back.\n🔍 <b>Spot-check 2 of the 3</b> (below): ✅ if holding it back was right, 🚨 if you wanted an alert.",
+   "buttons": [],
+   "has_photo": false,
+   "frame": null
+  },
+  {
+   "id": "m028",
+   "at": "2026-10-30T12:38:11.799-05:00",
+   "t": 1691.8,
+   "message": "tg16",
+   "action": "sent",
+   "kind": "spot_check",
+   "event": "e05",
+   "members": [],
+   "text": "<b>🔍 Spot-check · Person · webcam · Fri 12:30</b>\nHeld back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.\nWhy: Person is bent over in a bedroom workspace, consistent with routine activity.\nWhat happened: Person bending over in bedroom. A person wearing a white cap and red shirt is bent over in a bedroom, appearing to be focused on something near the floor. They remain in this position throughout the frames.\nVision model: benign @ 0.95 · first look by the vision model",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e05"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e05"
+     }
+    ],
+    [
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e05"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f05"
+  },
+  {
+   "id": "m029",
+   "at": "2026-10-30T12:38:12.713-05:00",
+   "t": 1692.713,
+   "message": "tg17",
+   "action": "sent",
+   "kind": "spot_check",
+   "event": "e04",
+   "members": [],
+   "text": "<b>🔍 Spot-check · Person · webcam · Fri 12:29</b>\nHeld back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.\nWhy: recognized as Resident A by Frigate's face recognition\nDecided by Frigate's face recognition (match score 0.92)",
+   "buttons": [
+    [
+     {
+      "label": "✅ Expected",
+      "action": "ok",
+      "event": "e04"
+     },
+     {
+      "label": "🚨 Alert me",
+      "action": "real",
+      "event": "e04"
+     }
+    ],
+    [
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e04"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f06"
+  },
+  {
+   "id": "m030",
+   "at": "2026-10-30T12:38:20.783-05:00",
+   "t": 1700.784,
+   "message": "tg16",
+   "action": "edited",
+   "kind": "spot_check",
+   "event": "e05",
+   "members": [],
+   "text": "<b>🔍 Spot-check · Person · webcam · Fri 12:30</b>\nHeld back, no card sent. Was that right? ✅ if so, 🚨 if you wanted an alert.\nWhy: Person is bent over in a bedroom workspace, consistent with routine activity.\nWhat happened: Person bending over in bedroom. A person wearing a white cap and red shirt is bent over in a bedroom, appearing to be focused on something near the floor. They remain in this position throughout the frames.\nVision model: benign @ 0.95 · first look by the vision model\n\n🔍 Spot-check: right to hold back. ✅ Marked expected (25 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+   "buttons": [
+    [
+     {
+      "label": "↩️ Undo",
+      "action": "undo",
+      "event": "e05",
+      "corrections": [
+       "c04"
+      ]
+     },
+     {
+      "label": "❓ Why",
+      "action": "why",
+      "event": "e05"
+     }
+    ],
+    [
+     {
+      "label": "▶️ Clip",
+      "link": true
+     }
+    ]
+   ],
+   "has_photo": true,
+   "frame": "f05"
+  }
+ ],
+ "owner_actions": [
+  {
+   "id": "a001",
+   "at": "2026-10-30T12:26:58.204-05:00",
+   "t": 1018.205,
+   "kind": "command",
+   "on_message": null,
+   "text": "/digest"
+  },
+  {
+   "id": "a002",
+   "at": "2026-10-30T12:27:44.131-05:00",
+   "t": 1064.131,
+   "kind": "button",
+   "on_message": "tg02",
+   "action": "ok",
+   "event": "e01",
+   "outcome": {
+    "toast": "Thanks: holding it back was right.",
+    "footer": "🔍 Spot-check: right to hold back. ✅ Marked expected (22 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+    "reply": null,
+    "done": null,
+    "spot_check": true,
+    "corrections": [
+     "c01"
+    ]
+   }
+  },
+  {
+   "id": "a003",
+   "at": "2026-10-30T12:28:01.321-05:00",
+   "t": 1081.321,
+   "kind": "button",
+   "on_message": "tg03",
+   "action": "ok",
+   "event": "e03",
+   "outcome": {
+    "toast": "Thanks: holding it back was right.",
+    "footer": "🔍 Spot-check: right to hold back. ✅ Marked expected (23 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+    "reply": null,
+    "done": null,
+    "spot_check": true,
+    "corrections": [
+     "c02"
+    ]
+   }
+  },
+  {
+   "id": "a004",
+   "at": "2026-10-30T12:33:49.012-05:00",
+   "t": 1429.013,
+   "kind": "button",
+   "on_message": "tg05",
+   "action": "confirm",
+   "proposal": "pr01",
+   "outcome": {
+    "toast": "Arming is now Away.",
+    "footer": null,
+    "reply": null,
+    "done": true,
+    "spot_check": null,
+    "corrections": []
+   }
+  },
+  {
+   "id": "a005",
+   "at": "2026-10-30T12:35:47.466-05:00",
+   "t": 1547.467,
+   "kind": "button",
+   "on_message": "tg07",
+   "action": "why",
+   "event": "e08",
+   "outcome": {
+    "toast": "Explanation below.",
+    "footer": null,
+    "reply": "<b>Why this alert</b> (webcam, 12:35)\nDecision: escalated_human, confidence 0.00, after an investigation\nReason: the investigation could not decide. The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.\nMemory: recurring false alarm on webcam for [\"person\"] (23 human correction(s))\nInvestigation by tools/qwen3-vl:8b-instruct: 6 tool call(s) (search_similar_alerts, get_device_status, cross_reference_cameras, check_duty_roster, get_historical_frames, describe_historical_frames)\nConclusion: The investigation reached its budget without a usable conclusion from the model. Recommended action: Human review needed.",
+    "done": null,
+    "spot_check": false,
+    "corrections": []
+   }
+  },
+  {
+   "id": "a006",
+   "at": "2026-10-30T12:36:24.415-05:00",
+   "t": 1584.416,
+   "kind": "button",
+   "on_message": "tg07",
+   "action": "ok",
+   "event": "e08",
+   "outcome": {
+    "toast": "Thanks, noted as expected.",
+    "footer": "✅ Marked expected (24 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+    "reply": null,
+    "done": null,
+    "spot_check": false,
+    "corrections": [
+     "c03"
+    ]
+   }
+  },
+  {
+   "id": "a007",
+   "at": "2026-10-30T12:37:40.001-05:00",
+   "t": 1660.001,
+   "kind": "button",
+   "on_message": "tg12",
+   "action": "confirm",
+   "proposal": "pr02",
+   "outcome": {
+    "toast": "Removed “night_security_patrol” from the duty roster (duty_roster.yml; the previous version is duty_roster.yml.bak-20261030-123739).",
+    "footer": null,
+    "reply": null,
+    "done": true,
+    "spot_check": null,
+    "corrections": []
+   }
+  },
+  {
+   "id": "a008",
+   "at": "2026-10-30T12:37:53.857-05:00",
+   "t": 1673.858,
+   "kind": "button",
+   "on_message": "tg14",
+   "action": "confirm",
+   "proposal": "pr03",
+   "outcome": {
+    "toast": "Removed “cleaner” from the duty roster (duty_roster.yml; the previous version is duty_roster.yml.bak-20261030-123753).",
+    "footer": null,
+    "reply": null,
+    "done": true,
+    "spot_check": null,
+    "corrections": []
+   }
+  },
+  {
+   "id": "a009",
+   "at": "2026-10-30T12:37:58.094-05:00",
+   "t": 1678.095,
+   "kind": "command",
+   "on_message": null,
+   "text": "/arm home"
+  },
+  {
+   "id": "a010",
+   "at": "2026-10-30T12:38:02.266-05:00",
+   "t": 1682.266,
+   "kind": "command",
+   "on_message": null,
+   "text": "/face"
+  },
+  {
+   "id": "a011",
+   "at": "2026-10-30T12:38:09.786-05:00",
+   "t": 1689.786,
+   "kind": "command",
+   "on_message": null,
+   "text": "/digest"
+  },
+  {
+   "id": "a012",
+   "at": "2026-10-30T12:38:20.311-05:00",
+   "t": 1700.311,
+   "kind": "button",
+   "on_message": "tg16",
+   "action": "ok",
+   "event": "e05",
+   "outcome": {
+    "toast": "Thanks: holding it back was right.",
+    "footer": "🔍 Spot-check: right to hold back. ✅ Marked expected (25 so far). The vision model is now shown your judgements of person on webcam as examples; events it finds match them are held back (a person still alerts while armed away or at night), and still recorded.",
+    "reply": null,
+    "done": null,
+    "spot_check": true,
+    "corrections": [
+     "c04"
+    ]
+   }
+  }
+ ],
+ "corrections": [
+  {
+   "id": "c01",
+   "event": "e01",
+   "at": "2026-10-30T12:27:44.105-05:00",
+   "t": 1064.105,
+   "verdict": "benign",
+   "system_verdict": "benign",
+   "note": null,
+   "via": "spot_check",
+   "undone": null,
+   "effects": [
+    {
+     "pattern": "p01",
+     "effect": "reinforced"
+    },
+    {
+     "pattern": "p01",
+     "effect": "agreed"
+    }
+   ]
+  },
+  {
+   "id": "c02",
+   "event": "e03",
+   "at": "2026-10-30T12:28:01.306-05:00",
+   "t": 1081.306,
+   "verdict": "benign",
+   "system_verdict": "benign",
+   "note": null,
+   "via": "spot_check",
+   "undone": null,
+   "effects": [
+    {
+     "pattern": "p01",
+     "effect": "reinforced"
+    }
+   ]
+  },
+  {
+   "id": "c03",
+   "event": "e08",
+   "at": "2026-10-30T12:36:24.391-05:00",
+   "t": 1584.392,
+   "verdict": "benign",
+   "system_verdict": "uncertain",
+   "note": null,
+   "via": "card",
+   "undone": null,
+   "effects": [
+    {
+     "pattern": "p01",
+     "effect": "reinforced"
+    },
+    {
+     "pattern": "p01",
+     "effect": "agreed"
+    }
+   ]
+  },
+  {
+   "id": "c04",
+   "event": "e05",
+   "at": "2026-10-30T12:38:20.285-05:00",
+   "t": 1700.286,
+   "verdict": "benign",
+   "system_verdict": "benign",
+   "note": null,
+   "via": "spot_check",
+   "undone": null,
+   "effects": [
+    {
+     "pattern": "p01",
+     "effect": "reinforced"
+    },
+    {
+     "pattern": "p01",
+     "effect": "agreed"
+    }
+   ]
+  }
+ ],
+ "patterns": [
+  {
+   "id": "p01",
+   "kind": "false_alarm",
+   "camera": "webcam",
+   "signature": "webcam|person|nozone",
+   "description": "recurring false alarm on webcam for [\"person\"]",
+   "corrections": 25,
+   "agreements": 14,
+   "disagreements": 0,
+   "trust": 0.938,
+   "first_seen": {
+    "at": "2026-10-23T15:48:19.822-05:00",
+    "t": -591700.177
+   },
+   "last_seen": {
+    "at": "2026-10-30T12:38:20.301-05:00",
+    "t": 1700.301
+   },
+   "state": "at export"
+  }
+ ],
+ "conversations": [
+  {
+   "id": "owner",
+   "turns": [
+    {
+     "id": "q01",
+     "at": "2026-10-30T12:33:47.470-05:00",
+     "t": 1427.47,
+     "question": "arm the house to away",
+     "answer": "I’ve proposed switching the house to Away mode. Tap ✅ Confirm to apply it.",
+     "about": null,
+     "tools": [
+      {
+       "tool": "propose_arming",
+       "arguments": {
+        "state": "armed_away"
+       },
+       "ok": true,
+       "result": "{\"ok\": true, \"proposal\": \"Switch arming to Away.\", \"note\": \"Nothing has changed yet: the owner sees this with ✅ Confirm / ✖️ Cancel buttons. Tell them to tap Confirm if it is right.\"}"
+      }
+     ],
+     "photos": [],
+     "proposals": [
+      "pr01"
+     ],
+     "seconds": 1.4,
+     "prompt_tokens": 2103,
+     "guard": null,
+     "steps_recorded": true
+    },
+    {
+     "id": "q02",
+     "at": "2026-10-30T12:36:42.280-05:00",
+     "t": 1602.281,
+     "question": "anything happen while I was away",
+     "answer": "While you were away, Resident A was in the bedroom. Frigate recognized him multiple times, and he was seen adjusting a cap, walking around, and bending over. One event asked you to decide, but no alerts were triggered.",
+     "about": null,
+     "tools": [
+      {
+       "tool": "recent_activity",
+       "arguments": {
+        "hours": 24,
+        "room": "bedroom"
+       },
+       "ok": true,
+       "result": "{\"ok\": true, \"window\": \"the last 24 h\", \"total\": 8, \"counts\": {\"asked the owner to decide\": 1, \"routine, no card\": 7}, \"events\": [{\"event_id\": \"e08\", \"when\": \"Fri 12:35\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"asked the owner to decide\", \"room\": \"bedroom\", \"what_happened\": \"Person adjusting cap in room. A person is seen adjusting a white cap while seated in a room, gradually revealing their face over time.\"}, {\"event_id\": \"e07\", \"when\": \"Fri 12:34\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"Person walking away from camera. A person in a red shirt and shorts walks away from the camera toward a doorway and exits the frame.\"}, {\"event_id\": \"e06\", \"when\": \"Fri 12:33\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"Person in bedroom workspace. A person wearing a cap and glasses is seated in a bedroom, looking around and making facial expressions. They remain in the same location throughout th\"}, {\"event_id\": \"e05\", \"when\": \"Fri 12:30\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"Person bending over in bedroom. A person wearing a white cap and red shirt is bent over in a bedroom, appearing to be focused on something near the floor. They remain in this posit\"}, {\"event_id\": \"e04\", \"when\": \"Fri 12:29\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"recognized as Resident A by Frigate's face recognition\"}, {\"event_id\": \"e03\", \"when\": \"Fri 12:25\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"recognized as Resident A by Frigate's face recognition\"}, {\"event_id\": \"e02\", \"when\": \"Fri 12:15\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"recognized as Resident A by Frigate's face recognition\"}, {\"event_id\": \"e01\", \"when\": \"Fri 12:14\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"Person visible in adjacent room. A person is visible in an adjacent room through an open doorway, standing still throughout the frames.\"}], \"page\": 1, \"more_pages\": false}"
+      }
+     ],
+     "photos": [],
+     "proposals": [],
+     "seconds": 2.8,
+     "prompt_tokens": 3009,
+     "guard": null,
+     "steps_recorded": true
+    },
+    {
+     "id": "q03",
+     "at": "2026-10-30T12:37:26.865-05:00",
+     "t": 1646.866,
+     "question": "why did not you tell me about the 12:25 one? show me a photo",
+     "answer": "The 12:25 event was marked as \"routine, no card\" because Frigate recognized Resident A, and you previously marked it as expected. No alert was sent. Here’s the photo.",
+     "about": null,
+     "tools": [
+      {
+       "tool": "explain_decision",
+       "arguments": {
+        "time": "12:25",
+        "room": "bedroom"
+       },
+       "ok": true,
+       "result": "{\"ok\": true, \"event\": {\"event_id\": \"e03\", \"when\": \"Fri 12:25\", \"camera\": \"webcam\", \"what\": \"person\", \"outcome\": \"routine, no card\", \"room\": \"bedroom\", \"what_happened\": \"recognized as Resident A by Frigate's face recognition\", \"decided_by\": \"decided by Frigate's face recognition\", \"reason\": \"recognized as Resident A by Frigate's face recognition\", \"confidence\": 0.98, \"card_sent\": true, \"owner_said\": [\"expected\"]}}"
+      },
+      {
+       "tool": "show_snapshot",
+       "arguments": {
+        "event_id": "e03"
+       },
+       "ok": true,
+       "result": "{\"ok\": true, \"note\": \"the photo of webcam at Fri 12:25 is sent with your answer\"}"
+      }
+     ],
+     "photos": [
+      "e03"
+     ],
+     "proposals": [],
+     "seconds": 3.8,
+     "prompt_tokens": 2505,
+     "guard": null,
+     "steps_recorded": true
+    },
+    {
+     "id": "q04",
+     "at": "2026-10-30T12:37:37.521-05:00",
+     "t": 1657.521,
+     "question": "remove the night security patrol rule",
+     "answer": "I’ve proposed removing the night security patrol rule. Tap ✅ Confirm to apply it.",
+     "about": null,
+     "tools": [
+      {
+       "tool": "propose_roster_removal",
+       "arguments": {
+        "name": "night_security_patrol"
+       },
+       "ok": true,
+       "result": "{\"ok\": true, \"proposal\": \"Remove from the duty roster: “night_security_patrol”, Mon Tue Wed Thu Fri Sat Sun 22:00–06:00 on cam_yard, cam_drive (rostered security patrol walking the perimeter). Then a person there at those times is no longer expected.\", \"note\": \"Nothing has changed yet: the owner sees this with ✅ Confirm / ✖️ Cancel buttons. Tell them to tap Confirm if it is right.\"}"
+      }
+     ],
+     "photos": [],
+     "proposals": [
+      "pr02"
+     ],
+     "seconds": 1.2,
+     "prompt_tokens": 2391,
+     "guard": null,
+     "steps_recorded": true
+    },
+    {
+     "id": "q05",
+     "at": "2026-10-30T12:37:48.236-05:00",
+     "t": 1668.236,
+     "question": "remove the cleaner rule",
+     "answer": "I’ve proposed removing the cleaner rule. Tap ✅ Confirm to apply it.",
+     "about": null,
+     "tools": [
+      {
+       "tool": "propose_roster_removal",
+       "arguments": {
+        "name": "cleaner"
+       },
+       "ok": true,
+       "result": "{\"ok\": true, \"proposal\": \"Remove from the duty roster: “cleaner”, Thu 13:00–16:00 on cam_door (contract cleaner entering via the front door). Then a person there at those times is no longer expected.\", \"note\": \"Nothing has changed yet: the owner sees this with ✅ Confirm / ✖️ Cancel buttons. Tell them to tap Confirm if it is right.\"}"
+      }
+     ],
+     "photos": [],
+     "proposals": [
+      "pr03"
+     ],
+     "seconds": 1.2,
+     "prompt_tokens": 2489,
+     "guard": null,
+     "steps_recorded": true
+    }
+   ]
+  }
+ ],
+ "proposals": [
+  {
+   "id": "pr01",
+   "at": "2026-10-30T12:33:46.995-05:00",
+   "t": 1426.995,
+   "kind": "arming",
+   "summary": "Switch arming to Away.",
+   "payload": {
+    "state": "armed_away",
+    "label": "Away"
+   },
+   "status": "applied",
+   "result": "Arming is now Away.",
+   "decided": {
+    "at": "2026-10-30T12:33:49.008-05:00",
+    "t": 1429.008
+   }
+  },
+  {
+   "id": "pr02",
+   "at": "2026-10-30T12:37:37.028-05:00",
+   "t": 1657.029,
+   "kind": "roster_removal",
+   "summary": "Remove from the duty roster: “night_security_patrol”, Mon Tue Wed Thu Fri Sat Sun 22:00–06:00 on cam_yard, cam_drive (rostered security patrol walking the perimeter). Then a person there at those times is no longer expected.",
+   "payload": {
+    "entry": {
+     "name": "night_security_patrol",
+     "kind": "shift",
+     "days": [
+      "mon",
+      "tue",
+      "wed",
+      "thu",
+      "fri",
+      "sat",
+      "sun"
+     ],
+     "start": "22:00",
+     "end": "06:00",
+     "cameras": [
+      "cam_yard",
+      "cam_drive"
+     ],
+     "zones": [
+      "perimeter"
+     ],
+     "labels": [
+      "person"
+     ],
+     "expect": "rostered security patrol walking the perimeter",
+     "confidence": 0.9
+    }
+   },
+   "status": "applied",
+   "result": "Removed “night_security_patrol” from the duty roster (duty_roster.yml; the previous version is duty_roster.yml.bak-20261030-123739).",
+   "decided": {
+    "at": "2026-10-30T12:37:39.995-05:00",
+    "t": 1659.996
+   }
+  },
+  {
+   "id": "pr03",
+   "at": "2026-10-30T12:37:47.794-05:00",
+   "t": 1667.794,
+   "kind": "roster_removal",
+   "summary": "Remove from the duty roster: “cleaner”, Thu 13:00–16:00 on cam_door (contract cleaner entering via the front door). Then a person there at those times is no longer expected.",
+   "payload": {
+    "entry": {
+     "name": "cleaner",
+     "kind": "scheduled_activity",
+     "days": [
+      "thu"
+     ],
+     "start": "13:00",
+     "end": "16:00",
+     "cameras": [
+      "cam_door"
+     ],
+     "labels": [
+      "person"
+     ],
+     "expect": "contract cleaner entering via the front door",
+     "confidence": 0.8
+    }
+   },
+   "status": "applied",
+   "result": "Removed “cleaner” from the duty roster (duty_roster.yml; the previous version is duty_roster.yml.bak-20261030-123753).",
+   "decided": {
+    "at": "2026-10-30T12:37:53.852-05:00",
+    "t": 1673.853
+   }
+  }
+ ],
+ "watches": [],
+ "digests": [
+  {
+   "id": "g01",
+   "kind": "asked",
+   "covers": {
+    "start": "2026-10-29T12:26:58.210-05:00",
+    "end": "2026-10-30T12:26:58.210-05:00"
+   },
+   "at": "2026-10-30T12:26:58.210-05:00",
+   "t": 1018.21,
+   "messages": [
+    "tg01"
+   ],
+   "spot_checks": [
+    "e01",
+    "e03"
+   ],
+   "sent": true
+  },
+  {
+   "id": "g02",
+   "kind": "asked",
+   "covers": {
+    "start": "2026-10-30T12:26:58.210-05:00",
+    "end": "2026-10-30T12:38:09.792-05:00"
+   },
+   "at": "2026-10-30T12:38:09.792-05:00",
+   "t": 1689.792,
+   "messages": [
+    "tg15"
+   ],
+   "spot_checks": [
+    "e05",
+    "e04"
+   ],
+   "sent": true
+  }
+ ],
+ "arming": [
+  {
+   "at": "2026-10-30T12:33:49.002-05:00",
+   "t": 1429.002,
+   "state": "armed_away",
+   "source": "chat"
+  },
+  {
+   "at": "2026-10-30T12:37:58.100-05:00",
+   "t": 1678.101,
+   "state": "armed_home",
+   "source": "telegram"
+  }
+ ],
+ "metrics": {
+  "counts": {
+   "label": "counted from this recording",
+   "events": 9,
+   "sent_to_owner": 2,
+   "held_back": 7,
+   "alerted_while_muted": 0,
+   "held_back_by_reason": {
+    "recognized Resident A": 4,
+    "the vision model, shown your 25 corrections for person on webcam, found it ordinary": 3
+   },
+   "final_stage": {
+    "gated": 0,
+    "face": 4,
+    "screened": 3,
+    "investigated": 2,
+    "summarized": 0,
+    "ingested": 0
+   },
+   "model_calls": {
+    "screenings": 7,
+    "investigations": 2,
+    "chat_answers": 5
+   },
+   "owner_answers": {
+    "benign": 4
+   },
+   "spot_checks": {
+    "answered": 3,
+    "right_to_hold_back": 3,
+    "accuracy": 1.0
+   }
+  },
+  "timings": {
+   "label": "measured (GCP g2-standard-4, NVIDIA L4, 2026-10-30)",
+   "first_card_after_event_start_s": {
+    "n": 2,
+    "median": 2.0,
+    "max": 2.0
+   },
+   "screen_ms": {
+    "n": 7,
+    "median": 3180.62,
+    "max": 3367.02
+   },
+   "investigation_s": {
+    "n": 2,
+    "median": 22.0,
+    "max": 24.0
+   },
+   "chat_answer_s": {
+    "n": 5,
+    "median": 1.4,
+    "max": 3.8
+   }
+  }
+ }
+}
