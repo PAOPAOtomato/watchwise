@@ -146,9 +146,10 @@ Each provider can be given **a key just for Watchwise**:
 set, it wins over the provider's usual variable (`OPENAI_API_KEY`, ...), and
 the generated config names it, so Watchwise never quietly uses a key that other
 tools share. If a configured key is missing, `watchwise check` says which
-variable to set instead of falling back to another credential. Most providers
-let you create a separate project or key with its own spending limit; doing so
-for Watchwise keeps experiments bounded.
+variable to set instead of falling back to another credential. Watchwise does
+not limit your total cloud spend. Most providers let you create a separate
+project or key with its own spending limit; set one for Watchwise's key to keep
+its cost bounded.
 
 What model requests leave your machine depends on the profile, and `init`
 prints it. These rows assume local model endpoints; a remote Ollama or

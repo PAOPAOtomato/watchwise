@@ -115,7 +115,8 @@ does not mean every provider has passed a live camera test.
 takes precedence over the provider's usual variable; without a dedicated key,
 setup can select the usual variable. Inspect `api_key_env` in the generated
 configuration. A configured missing key is reported rather than replaced with
-another credential.
+another credential. Watchwise does not limit your total cloud spend; set a
+spending limit for that key's project in your provider's console.
 
 The table describes model traffic. Pointing a role at a remote server sends its
 inputs there. Telegram, webhooks, and MQTT outputs have their own data paths;
